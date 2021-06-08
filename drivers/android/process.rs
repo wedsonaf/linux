@@ -545,6 +545,9 @@ impl Process {
     pub(crate) fn buffer_get(&self, ptr: usize) -> Option<Allocation> {
         let mut inner = self.inner.lock();
         let mapping = inner.mapping.as_mut()?;
+        if ptr < mapping.address {
+            return None;
+        }
         let offset = ptr - mapping.address;
         let (size, odata) = mapping.alloc.reserve_existing(offset).ok()?;
         let mut alloc = Allocation::new(self, offset, size, ptr, mapping.pages.clone());
@@ -557,6 +560,9 @@ impl Process {
     pub(crate) fn buffer_raw_free(&self, ptr: usize) {
         let mut inner = self.inner.lock();
         if let Some(ref mut mapping) = &mut inner.mapping {
+            if ptr < mapping.address {
+                return;
+            }
             if mapping
                 .alloc
                 .reservation_abort(ptr - mapping.address)
