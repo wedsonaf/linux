@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdalign.h>
@@ -52,13 +53,17 @@ static size_t handle_read(int fd, struct binder_write_read *b)
 int main(int argc, char **argv)
 {
 	int ret;
-	size_t i;
 	struct timespec begin, end;
+	uint64_t iters = 1000000;
 
-	if (argc != 2) {
-		fprintf(stderr, "Usage: %s <binder-file-name>\n", argv[0]);
+	if (argc != 2 && argc != 3) {
+		fprintf(stderr, "Usage: %s <binder-file-name> [iters]\n",
+			argv[0]);
 		return 1;
 	}
+
+	if (argc >= 3)
+		iters = strtoull(argv[2], NULL, 10);
 
 	int fd = open(argv[1], O_RDWR);
 	if (fd == -1) {
@@ -100,7 +105,7 @@ int main(int argc, char **argv)
 	to_write.addr = handle_read(fd, &b);
 
 	clock_gettime(CLOCK_MONOTONIC, &begin);
-	for (i = 0; i < 1000000; i++) {
+	while (iters--) {
 		b.read_consumed = 0;
 		b.write_consumed = 0;
 		ret = ioctl(fd, BINDER_WRITE_READ, &b);
