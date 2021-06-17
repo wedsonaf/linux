@@ -60,12 +60,20 @@ impl OfMatchTable {
 }
 
 impl PointerWrapper for OfMatchTable {
+    type Borrowed = <InnerTable as PointerWrapper>::Borrowed;
+
     fn into_pointer(self) -> *const c_types::c_void {
         // Per the invariant above, the generated pointer points to an
         // array of `bindings::of_device_id`, where the final element is
         // filled with zeros (the sentinel). Therefore, it's suitable to
         // be assigned to `bindings::device_driver::of_match_table`.
         self.0.into_pointer()
+    }
+
+    unsafe fn borrow(ptr: *const c_types::c_void) -> Self::Borrowed {
+        // SAFETY: The safety  requirements for this function are the same as the ones for
+        // `InnerTable::borrow`.
+        unsafe { InnerTable::borrow(ptr) }
     }
 
     unsafe fn from_pointer(p: *const c_types::c_void) -> Self {
