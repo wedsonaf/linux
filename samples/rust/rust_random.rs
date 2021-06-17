@@ -21,7 +21,7 @@ struct RandomFile;
 impl FileOperations for RandomFile {
     kernel::declare_file_operations!(read, write, read_iter, write_iter);
 
-    fn read<T: IoBufferWriter>(&self, file: &File, buf: &mut T, _offset: u64) -> Result<usize> {
+    fn read<T: IoBufferWriter>(_this: &Self, file: &File, buf: &mut T, _: u64) -> Result<usize> {
         let total_len = buf.len();
         let mut chunkbuf = [0; 256];
 
@@ -39,7 +39,7 @@ impl FileOperations for RandomFile {
         Ok(total_len)
     }
 
-    fn write<T: IoBufferReader>(&self, _file: &File, buf: &mut T, _offset: u64) -> Result<usize> {
+    fn write<T: IoBufferReader>(_this: &Self, _file: &File, buf: &mut T, _: u64) -> Result<usize> {
         let total_len = buf.len();
         let mut chunkbuf = [0; 256];
         while !buf.is_empty() {

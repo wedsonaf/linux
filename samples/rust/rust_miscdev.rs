@@ -68,22 +68,20 @@ impl FileOpener<Pin<Arc<SharedState>>> for Token {
 }
 
 impl FileOperations for Token {
-    type Wrapper = Box<Self>;
-
     kernel::declare_file_operations!(read, write);
 
-    fn read<T: IoBufferWriter>(&self, _: &File, data: &mut T, offset: u64) -> Result<usize> {
+    fn read<T: IoBufferWriter>(this: &Self, _: &File, data: &mut T, offset: u64) -> Result<usize> {
         // Succeed if the caller doesn't provide a buffer or if not at the start.
         if data.is_empty() || offset != 0 {
             return Ok(0);
         }
 
         {
-            let mut inner = self.shared.inner.lock();
+            let mut inner = this.shared.inner.lock();
 
             // Wait until we are allowed to decrement the token count or a signal arrives.
             while inner.token_count == 0 {
-                if self.shared.state_changed.wait(&mut inner) {
+                if this.shared.state_changed.wait(&mut inner) {
                     return Err(Error::EINTR);
                 }
             }
@@ -93,20 +91,20 @@ impl FileOperations for Token {
         }
 
         // Notify a possible writer waiting.
-        self.shared.state_changed.notify_all();
+        this.shared.state_changed.notify_all();
 
         // Write a one-byte 1 to the reader.
         data.write_slice(&[1u8; 1])?;
         Ok(1)
     }
 
-    fn write<T: IoBufferReader>(&self, _: &File, data: &mut T, _offset: u64) -> Result<usize> {
+    fn write<T: IoBufferReader>(this: &Self, _: &File, data: &mut T, _offs: u64) -> Result<usize> {
         {
-            let mut inner = self.shared.inner.lock();
+            let mut inner = this.shared.inner.lock();
 
             // Wait until we are allowed to increment the token count or a signal arrives.
             while inner.token_count == MAX_TOKENS {
-                if self.shared.state_changed.wait(&mut inner) {
+                if this.shared.state_changed.wait(&mut inner) {
                     return Err(Error::EINTR);
                 }
             }
@@ -116,7 +114,7 @@ impl FileOperations for Token {
         }
 
         // Notify a possible reader waiting.
-        self.shared.state_changed.notify_all();
+        this.shared.state_changed.notify_all();
         Ok(data.len())
     }
 }

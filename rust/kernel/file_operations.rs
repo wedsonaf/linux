@@ -5,7 +5,7 @@
 //! C header: [`include/linux/fs.h`](../../../../include/linux/fs.h)
 
 use core::convert::{TryFrom, TryInto};
-use core::{marker, mem, ptr};
+use core::{marker, mem, ops::Deref, ptr};
 
 use alloc::boxed::Box;
 
@@ -99,10 +99,10 @@ unsafe extern "C" fn read_callback<T: FileOperations>(
 ) -> c_types::c_ssize_t {
     from_kernel_result! {
         let mut data = unsafe { UserSlicePtr::new(buf as *mut c_types::c_void, len).writer() };
-        let f = unsafe { &*((*file).private_data as *const T) };
+        let f = unsafe { T::Wrapper::borrow((*file).private_data) };
         // No `FMODE_UNSIGNED_OFFSET` support, so `offset` must be in [0, 2^63).
         // See discussion in https://github.com/fishinabarrel/linux-kernel-module-rust/pull/113
-        let read = f.read(unsafe { &FileRef::from_ptr(file) }, &mut data, unsafe { *offset }.try_into()?)?;
+        let read = T::read(f.deref(), unsafe { &FileRef::from_ptr(file) }, &mut data, unsafe { *offset }.try_into()?)?;
         unsafe { (*offset) += bindings::loff_t::try_from(read).unwrap() };
         Ok(read as _)
     }
@@ -116,8 +116,8 @@ unsafe extern "C" fn read_iter_callback<T: FileOperations>(
         let mut iter = unsafe { IovIter::from_ptr(raw_iter) };
         let file = unsafe { (*iocb).ki_filp };
         let offset = unsafe { (*iocb).ki_pos };
-        let f = unsafe { &*((*file).private_data as *const T) };
-        let read = f.read(unsafe { &FileRef::from_ptr(file) }, &mut iter, offset.try_into()?)?;
+        let f = unsafe { T::Wrapper::borrow((*file).private_data) };
+        let read = T::read(f.deref(), unsafe { &FileRef::from_ptr(file) }, &mut iter, offset.try_into()?)?;
         unsafe { (*iocb).ki_pos += bindings::loff_t::try_from(read).unwrap() };
         Ok(read as _)
     }
@@ -131,10 +131,10 @@ unsafe extern "C" fn write_callback<T: FileOperations>(
 ) -> c_types::c_ssize_t {
     from_kernel_result! {
         let mut data = unsafe { UserSlicePtr::new(buf as *mut c_types::c_void, len).reader() };
-        let f = unsafe { &*((*file).private_data as *const T) };
+        let f = unsafe { T::Wrapper::borrow((*file).private_data) };
         // No `FMODE_UNSIGNED_OFFSET` support, so `offset` must be in [0, 2^63).
         // See discussion in https://github.com/fishinabarrel/linux-kernel-module-rust/pull/113
-        let written = f.write(unsafe { &FileRef::from_ptr(file) }, &mut data, unsafe { *offset }.try_into()?)?;
+        let written = T::write(f.deref(), unsafe { &FileRef::from_ptr(file) }, &mut data, unsafe { *offset }.try_into()?)?;
         unsafe { (*offset) += bindings::loff_t::try_from(written).unwrap() };
         Ok(written as _)
     }
@@ -148,8 +148,8 @@ unsafe extern "C" fn write_iter_callback<T: FileOperations>(
         let mut iter = unsafe { IovIter::from_ptr(raw_iter) };
         let file = unsafe { (*iocb).ki_filp };
         let offset = unsafe { (*iocb).ki_pos };
-        let f = unsafe { &*((*file).private_data as *const T) };
-        let written = f.write(unsafe { &FileRef::from_ptr(file) }, &mut iter, offset.try_into()?)?;
+        let f = unsafe { T::Wrapper::borrow((*file).private_data) };
+        let written = T::write(f.deref(), unsafe { &FileRef::from_ptr(file) }, &mut iter, offset.try_into()?)?;
         unsafe { (*iocb).ki_pos += bindings::loff_t::try_from(written).unwrap() };
         Ok(written as _)
     }
@@ -178,8 +178,8 @@ unsafe extern "C" fn llseek_callback<T: FileOperations>(
             bindings::SEEK_END => SeekFrom::End(offset),
             _ => return Err(Error::EINVAL),
         };
-        let f = unsafe { &*((*file).private_data as *const T) };
-        let off = f.seek(unsafe { &FileRef::from_ptr(file) }, off)?;
+        let f = unsafe { T::Wrapper::borrow((*file).private_data) };
+        let off = T::seek(f.deref(), unsafe { &FileRef::from_ptr(file) }, off)?;
         Ok(off as bindings::loff_t)
     }
 }
@@ -190,10 +190,9 @@ unsafe extern "C" fn unlocked_ioctl_callback<T: FileOperations>(
     arg: c_types::c_ulong,
 ) -> c_types::c_long {
     from_kernel_result! {
-        let f = unsafe { &*((*file).private_data as *const T) };
-        // SAFETY: This function is called by the kernel, so it must set `fs` appropriately.
+        let f = unsafe { T::Wrapper::borrow((*file).private_data) };
         let mut cmd = IoctlCommand::new(cmd as _, arg as _);
-        let ret = f.ioctl(unsafe { &FileRef::from_ptr(file) }, &mut cmd)?;
+        let ret = T::ioctl(f.deref(), unsafe { &FileRef::from_ptr(file) }, &mut cmd)?;
         Ok(ret as _)
     }
 }
@@ -204,10 +203,9 @@ unsafe extern "C" fn compat_ioctl_callback<T: FileOperations>(
     arg: c_types::c_ulong,
 ) -> c_types::c_long {
     from_kernel_result! {
-        let f = unsafe { &*((*file).private_data as *const T) };
-        // SAFETY: This function is called by the kernel, so it must set `fs` appropriately.
+        let f = unsafe { T::Wrapper::borrow((*file).private_data) };
         let mut cmd = IoctlCommand::new(cmd as _, arg as _);
-        let ret = f.compat_ioctl(unsafe { &FileRef::from_ptr(file) }, &mut cmd)?;
+        let ret = T::compat_ioctl(f.deref(), unsafe { &FileRef::from_ptr(file) }, &mut cmd)?;
         Ok(ret as _)
     }
 }
@@ -217,8 +215,8 @@ unsafe extern "C" fn mmap_callback<T: FileOperations>(
     vma: *mut bindings::vm_area_struct,
 ) -> c_types::c_int {
     from_kernel_result! {
-        let f = unsafe { &*((*file).private_data as *const T) };
-        f.mmap(unsafe { &FileRef::from_ptr(file) }, unsafe { &mut *vma })?;
+        let f = unsafe { T::Wrapper::borrow((*file).private_data) };
+        T::mmap(f.deref(), unsafe { &FileRef::from_ptr(file) }, unsafe { &mut *vma })?;
         Ok(0)
     }
 }
@@ -233,8 +231,8 @@ unsafe extern "C" fn fsync_callback<T: FileOperations>(
         let start = start.try_into()?;
         let end = end.try_into()?;
         let datasync = datasync != 0;
-        let f = unsafe { &*((*file).private_data as *const T) };
-        let res = f.fsync(unsafe { &FileRef::from_ptr(file) }, start, end, datasync)?;
+        let f = unsafe { T::Wrapper::borrow((*file).private_data) };
+        let res = T::fsync(f.deref(), unsafe { &FileRef::from_ptr(file) }, start, end, datasync)?;
         Ok(res.try_into().unwrap())
     }
 }
@@ -243,8 +241,8 @@ unsafe extern "C" fn poll_callback<T: FileOperations>(
     file: *mut bindings::file,
     wait: *mut bindings::poll_table_struct,
 ) -> bindings::__poll_t {
-    let f = unsafe { &*((*file).private_data as *const T) };
-    match f.poll(unsafe { &FileRef::from_ptr(file) }, unsafe {
+    let f = unsafe { T::Wrapper::borrow((*file).private_data) };
+    match T::poll(f.deref(), unsafe { &FileRef::from_ptr(file) }, unsafe {
         &PollTable::from_ptr(wait)
     }) {
         Ok(v) => v,
@@ -549,42 +547,70 @@ pub trait FileOperations: Send + Sync + Sized {
     /// Reads data from this file to the caller's buffer.
     ///
     /// Corresponds to the `read` and `read_iter` function pointers in `struct file_operations`.
-    fn read<T: IoBufferWriter>(&self, _file: &File, _data: &mut T, _offset: u64) -> Result<usize> {
+    fn read<T: IoBufferWriter>(
+        _this: &<<Self::Wrapper as PointerWrapper>::Borrowed as Deref>::Target,
+        _file: &File,
+        _data: &mut T,
+        _offset: u64,
+    ) -> Result<usize> {
         Err(Error::EINVAL)
     }
 
     /// Writes data from the caller's buffer to this file.
     ///
     /// Corresponds to the `write` and `write_iter` function pointers in `struct file_operations`.
-    fn write<T: IoBufferReader>(&self, _file: &File, _data: &mut T, _offset: u64) -> Result<usize> {
+    fn write<T: IoBufferReader>(
+        _this: &<<Self::Wrapper as PointerWrapper>::Borrowed as Deref>::Target,
+        _file: &File,
+        _data: &mut T,
+        _offset: u64,
+    ) -> Result<usize> {
         Err(Error::EINVAL)
     }
 
     /// Changes the position of the file.
     ///
     /// Corresponds to the `llseek` function pointer in `struct file_operations`.
-    fn seek(&self, _file: &File, _offset: SeekFrom) -> Result<u64> {
+    fn seek(
+        _this: &<<Self::Wrapper as PointerWrapper>::Borrowed as Deref>::Target,
+        _file: &File,
+        _offset: SeekFrom,
+    ) -> Result<u64> {
         Err(Error::EINVAL)
     }
 
     /// Performs IO control operations that are specific to the file.
     ///
     /// Corresponds to the `unlocked_ioctl` function pointer in `struct file_operations`.
-    fn ioctl(&self, _file: &File, _cmd: &mut IoctlCommand) -> Result<i32> {
+    fn ioctl(
+        _this: &<<Self::Wrapper as PointerWrapper>::Borrowed as Deref>::Target,
+        _file: &File,
+        _cmd: &mut IoctlCommand,
+    ) -> Result<i32> {
         Err(Error::EINVAL)
     }
 
     /// Performs 32-bit IO control operations on that are specific to the file on 64-bit kernels.
     ///
     /// Corresponds to the `compat_ioctl` function pointer in `struct file_operations`.
-    fn compat_ioctl(&self, _file: &File, _cmd: &mut IoctlCommand) -> Result<i32> {
+    fn compat_ioctl(
+        _this: &<<Self::Wrapper as PointerWrapper>::Borrowed as Deref>::Target,
+        _file: &File,
+        _cmd: &mut IoctlCommand,
+    ) -> Result<i32> {
         Err(Error::EINVAL)
     }
 
     /// Syncs pending changes to this file.
     ///
     /// Corresponds to the `fsync` function pointer in `struct file_operations`.
-    fn fsync(&self, _file: &File, _start: u64, _end: u64, _datasync: bool) -> Result<u32> {
+    fn fsync(
+        _this: &<<Self::Wrapper as PointerWrapper>::Borrowed as Deref>::Target,
+        _file: &File,
+        _start: u64,
+        _end: u64,
+        _datasync: bool,
+    ) -> Result<u32> {
         Err(Error::EINVAL)
     }
 
@@ -592,7 +618,11 @@ pub trait FileOperations: Send + Sync + Sized {
     ///
     /// Corresponds to the `mmap` function pointer in `struct file_operations`.
     /// TODO: wrap `vm_area_struct` so that we don't have to expose it.
-    fn mmap(&self, _file: &File, _vma: &mut bindings::vm_area_struct) -> Result {
+    fn mmap(
+        _this: &<<Self::Wrapper as PointerWrapper>::Borrowed as Deref>::Target,
+        _file: &File,
+        _vma: &mut bindings::vm_area_struct,
+    ) -> Result {
         Err(Error::EINVAL)
     }
 
@@ -600,7 +630,11 @@ pub trait FileOperations: Send + Sync + Sized {
     /// changes.
     ///
     /// Corresponds to the `poll` function pointer in `struct file_operations`.
-    fn poll(&self, _file: &File, _table: &PollTable) -> Result<u32> {
+    fn poll(
+        _this: &<<Self::Wrapper as PointerWrapper>::Borrowed as Deref>::Target,
+        _file: &File,
+        _table: &PollTable,
+    ) -> Result<u32> {
         Ok(bindings::POLLIN | bindings::POLLOUT | bindings::POLLRDNORM | bindings::POLLWRNORM)
     }
 }

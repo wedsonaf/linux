@@ -80,35 +80,33 @@ impl FileOpener<Arc<Semaphore>> for FileState {
 }
 
 impl FileOperations for FileState {
-    type Wrapper = Box<Self>;
-
     declare_file_operations!(read, write, ioctl);
 
-    fn read<T: IoBufferWriter>(&self, _: &File, data: &mut T, offset: u64) -> Result<usize> {
+    fn read<T: IoBufferWriter>(this: &Self, _: &File, data: &mut T, offset: u64) -> Result<usize> {
         if data.is_empty() || offset > 0 {
             return Ok(0);
         }
-        self.consume()?;
+        this.consume()?;
         data.write_slice(&[0u8; 1])?;
-        self.read_count.fetch_add(1, Ordering::Relaxed);
+        this.read_count.fetch_add(1, Ordering::Relaxed);
         Ok(1)
     }
 
-    fn write<T: IoBufferReader>(&self, _: &File, data: &mut T, _offset: u64) -> Result<usize> {
+    fn write<T: IoBufferReader>(this: &Self, _: &File, data: &mut T, _offs: u64) -> Result<usize> {
         {
-            let mut inner = self.shared.inner.lock();
+            let mut inner = this.shared.inner.lock();
             inner.count = inner.count.saturating_add(data.len());
             if inner.count > inner.max_seen {
                 inner.max_seen = inner.count;
             }
         }
 
-        self.shared.changed.notify_all();
+        this.shared.changed.notify_all();
         Ok(data.len())
     }
 
-    fn ioctl(&self, file: &File, cmd: &mut IoctlCommand) -> Result<i32> {
-        cmd.dispatch(self, file)
+    fn ioctl(this: &Self, file: &File, cmd: &mut IoctlCommand) -> Result<i32> {
+        cmd.dispatch::<Self>(this, file)
     }
 }
 

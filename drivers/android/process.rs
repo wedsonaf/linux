@@ -891,15 +891,15 @@ impl FileOperations for Process {
         }
     }
 
-    fn ioctl(&self, file: &File, cmd: &mut IoctlCommand) -> Result<i32> {
-        cmd.dispatch(self, file)
+    fn ioctl(this: &Process, file: &File, cmd: &mut IoctlCommand) -> Result<i32> {
+        cmd.dispatch::<Self>(this, file)
     }
 
-    fn compat_ioctl(&self, file: &File, cmd: &mut IoctlCommand) -> Result<i32> {
-        cmd.dispatch(self, file)
+    fn compat_ioctl(this: &Process, file: &File, cmd: &mut IoctlCommand) -> Result<i32> {
+        cmd.dispatch::<Self>(this, file)
     }
 
-    fn mmap(&self, _file: &File, vma: &mut bindings::vm_area_struct) -> Result {
+    fn mmap(this: &Process, _file: &File, vma: &mut bindings::vm_area_struct) -> Result {
         // TODO: Only group leader is allowed to create mappings.
 
         if vma.vm_start == 0 {
@@ -914,13 +914,13 @@ impl FileOperations for Process {
         vma.vm_flags &= !(bindings::VM_MAYWRITE as c_types::c_ulong);
 
         // TODO: Set ops. We need to learn when the user unmaps so that we can stop using it.
-        self.create_mapping(vma)
+        this.create_mapping(vma)
     }
 
-    fn poll(&self, file: &File, table: &PollTable) -> Result<u32> {
-        let thread = self.get_thread(unsafe { rust_helper_current_pid() })?;
+    fn poll(this: &Process, file: &File, table: &PollTable) -> Result<u32> {
+        let thread = this.get_thread(unsafe { rust_helper_current_pid() })?;
         let (from_proc, mut mask) = thread.poll(file, table);
-        if mask == 0 && from_proc && !self.inner.lock().work.is_empty() {
+        if mask == 0 && from_proc && !this.inner.lock().work.is_empty() {
             mask |= bindings::POLLIN;
         }
         Ok(mask)
