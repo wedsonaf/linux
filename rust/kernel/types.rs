@@ -183,6 +183,45 @@ impl<T: PointerWrapper + Deref> PointerWrapper for Pin<T> {
     }
 }
 
+/// Pretends to be a pointer.
+///
+/// The value actual value is held instead of the pointer.
+pub struct FakePointer<T: ?Sized> {
+    value: T,
+}
+
+impl<T: ?Sized> Deref for FakePointer<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+macro_rules! make_pointer_wrapper {
+    ($($typename:ty),+) => {
+        $(
+            impl PointerWrapper for $typename {
+                type Borrowed = FakePointer<Self>;
+
+                fn into_pointer(self) -> *const c_types::c_void {
+                    self as _
+                }
+
+                unsafe fn borrow(ptr: *const c_types::c_void) -> Self::Borrowed {
+                    FakePointer { value: ptr as _ }
+                }
+
+                unsafe fn from_pointer(ptr: *const c_types::c_void) -> Self {
+                    ptr as _
+                }
+            }
+        )+
+    };
+}
+
+make_pointer_wrapper!(usize, isize, u64, i64, u32, i32, u16, i16, u8, i8);
+
 /// Runs a cleanup function/closure when dropped.
 ///
 /// The [`ScopeGuard::dismiss`] function prevents the cleanup function from running.
