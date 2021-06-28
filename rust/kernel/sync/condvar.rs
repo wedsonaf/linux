@@ -17,7 +17,7 @@ extern "C" {
 /// Safely initialises a [`CondVar`] with the given name, generating a new lock class.
 #[macro_export]
 macro_rules! condvar_init {
-    ($condvar:expr, $name:literal) => {
+    ($condvar:expr, $name:expr) => {
         $crate::init_with_lockdep!($condvar, $name)
     };
 }

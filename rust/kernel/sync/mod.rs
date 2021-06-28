@@ -49,7 +49,7 @@ extern "C" {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! init_with_lockdep {
-    ($obj:expr, $name:literal) => {{
+    ($obj:expr, $name:expr) => {{
         static mut CLASS: core::mem::MaybeUninit<$crate::bindings::lock_class_key> =
             core::mem::MaybeUninit::uninit();
         let obj = $obj;
@@ -88,4 +88,41 @@ pub fn signal_pending() -> bool {
 pub fn cond_resched() -> bool {
     // SAFETY: No arguments, reschedules `current` if needed.
     unsafe { rust_helper_cond_resched() != 0 }
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! expand_init_call {
+    ($tname:ty, $arg:ident, $name:ident, mutex) => {{
+        let inner = unsafe { $arg.as_mut().map_unchecked_mut(|a| &mut a.$name) };
+        $crate::mutex_init!(inner, core::concat!(stringify!($tname), "::", stringify!($name)));
+    }};
+    ($tname:ty, $arg:ident, $name:ident, spinlock) => {{
+        let inner = unsafe { $arg.as_mut().map_unchecked_mut(|a| &mut a.$name) };
+        $crate::spinlock_init!!(inner, core::concat!(stringify!($tname), "::", stringify!($name)));
+    }};
+    ($tname:ty, $arg:ident, $name:ident, condvar) => {{
+        let inner = unsafe { $arg.as_mut().map_unchecked_mut(|a| &mut a.$name) };
+        $crate::condvar_init!(inner, core::concat!(stringify!($tname), "::", stringify!($name)));
+    }};
+    ($tname:ty, $arg:ident, $name:ident) => {};
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! expand_initer {
+    ($e:expr, mutex) => {{ let arg = $e; unsafe { $crate::sync::Mutex::new(arg) } }};
+    ($e:expr, spinlock) => {{ let arg = $e; unsafe { $crate::sync::SpinLock::new(arg) } }};
+    ($e:expr, condvar) => {{ unsafe { $crate::sync::CondVar::new() } }};
+    ($e:expr) => { $e };
+}
+
+#[macro_export]
+macro_rules! new_ref {
+    ($tname:ty { $($([$prim:ident])? $name:ident : $e:expr,)* }) => {{
+        type X = $tname;
+        $crate::sync::Ref::try_new_and_init(
+            X { $($name : {$crate::expand_initer!($e $(, $prim)?)},)* },
+            |mut arg| { $($crate::expand_init_call!($tname, arg, $name $(, $prim)?);)*})
+    }}
 }

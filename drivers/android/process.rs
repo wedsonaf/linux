@@ -292,23 +292,11 @@ unsafe impl Sync for Process {}
 
 impl Process {
     fn new(ctx: Arc<Context>) -> Result<Ref<Self>> {
-        Ref::try_new_and_init(
-            Self {
-                ctx,
-                // SAFETY: `inner` is initialised in the call to `mutex_init` below.
-                inner: unsafe { Mutex::new(ProcessInner::new()) },
-                // SAFETY: `node_refs` is initialised in the call to `mutex_init` below.
-                node_refs: unsafe { Mutex::new(ProcessNodeRefs::new()) },
-            },
-            |mut process| {
-                // SAFETY: `inner` is pinned when `Process` is.
-                let pinned = unsafe { process.as_mut().map_unchecked_mut(|p| &mut p.inner) };
-                kernel::mutex_init!(pinned, "Process::inner");
-                // SAFETY: `node_refs` is pinned when `Process` is.
-                let pinned = unsafe { process.as_mut().map_unchecked_mut(|p| &mut p.node_refs) };
-                kernel::mutex_init!(pinned, "Process::node_refs");
-            },
-        )
+        kernel::new_ref!(Process {
+            ctx: ctx,
+            [mutex] inner: ProcessInner::new(),
+            [mutex] node_refs: ProcessNodeRefs::new(),
+        })
     }
 
     /// Attemps to fetch a work item from the process queue.

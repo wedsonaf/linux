@@ -12,7 +12,7 @@ use core::{cell::UnsafeCell, marker::PhantomPinned, pin::Pin};
 /// Safely initialises a [`Mutex`] with the given name, generating a new lock class.
 #[macro_export]
 macro_rules! mutex_init {
-    ($mutex:expr, $name:literal) => {
+    ($mutex:expr, $name:expr) => {
         $crate::init_with_lockdep!($mutex, $name)
     };
 }
