@@ -28,6 +28,12 @@
 #![feature(coerce_unsized)]
 #![feature(dispatch_from_dyn)]
 #![feature(unsize)]
+#![feature(const_fn_fn_ptr_basics)]
+#![feature(const_maybe_uninit_as_ptr)]
+#![feature(const_ptr_offset)]
+#![feature(const_raw_ptr_deref)]
+#![feature(min_specialization)]
+#![feature(pin_static_ref)]
 
 // Ensure conditional compilation based on the kernel configuration works;
 // otherwise we may silently break things like initcall handling.
@@ -56,6 +62,7 @@ pub mod file;
 pub mod file_operations;
 pub mod gpio;
 pub mod irq;
+pub mod kobject;
 pub mod miscdev;
 pub mod pages;
 pub mod power;
@@ -96,7 +103,7 @@ pub mod user_ptr;
 pub use build_error::build_error;
 
 pub use crate::error::{to_result, Error, Result};
-pub use crate::types::{bit, bits_iter, Mode, Opaque, ScopeGuard};
+pub use crate::types::{bit, bits_iter, Mode, Opaque, ScopeGuard, parse_i32};
 
 use core::marker::PhantomData;
 

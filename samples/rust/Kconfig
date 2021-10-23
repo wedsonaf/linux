@@ -120,4 +120,13 @@ config SAMPLE_RUST_PLATFORM
 
 	  If unsure, say N.
 
+config SAMPLE_RUST_KOBJECT
+	tristate "Build kobject examples"
+	help
+	  This config option will allow you to build a number of
+	  different rust kobject sample modules showing how to use kobjects,
+	  ksets, and ktypes properly.
+
+	  If in doubt, say "N" here.
+
 endif # SAMPLES_RUST

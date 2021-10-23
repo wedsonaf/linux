@@ -7,6 +7,7 @@
 use crate::{
     bindings, c_types,
     sync::{Ref, RefBorrow},
+    Error, Result,
 };
 use alloc::boxed::Box;
 use core::{
@@ -125,6 +126,22 @@ impl<T: PointerWrapper + Deref> PointerWrapper for Pin<T> {
         // SAFETY: The object was originally pinned.
         // The passed pointer comes from a previous call to `inner::into_pointer()`.
         unsafe { Pin::new_unchecked(T::from_pointer(p)) }
+    }
+}
+
+impl<T> PointerWrapper for &'static T {
+    type Borrowed<'a> = &'a T;
+
+    fn into_pointer(self) -> *const c_types::c_void {
+        self as *const T as _
+    }
+
+    unsafe fn borrow<'a>(ptr: *const c_types::c_void) -> Self::Borrowed<'a> {
+        unsafe { &*(ptr as *const T) }
+    }
+
+    unsafe fn from_pointer(ptr: *const c_types::c_void) -> Self {
+        unsafe { &*(ptr as *const T) }
     }
 }
 
@@ -483,4 +500,91 @@ where
     }
 
     BitIterator { value }
+}
+
+pub fn parse_i32(mut buf: &[u8], mut base: u8) -> Result<i32> {
+    // Skip the sign if one is present.
+    let neg = if buf.len() == 0 {
+        false
+    } else {
+        match buf[0] as char {
+            '-' => {
+                buf = &buf[1..];
+                true
+            }
+            '+' => {
+                buf = &buf[1..];
+                false
+            }
+            _ => false,
+        }
+    };
+
+    // Figure out the base if one wasn't specified.
+    if base == 0 {
+        if buf.len() > 0 && buf[0] as char == '0' {
+            if buf.len() > 2
+                && (buf[1] as char).to_ascii_lowercase() == 'x'
+                && buf[2].is_ascii_hexdigit()
+            {
+                base = 16;
+            } else {
+                base = 8;
+            }
+        } else {
+            base = 10;
+        }
+    }
+
+    // Skip `0x` prefix from hex strings.
+    if base == 16
+        && buf.len() > 1
+        && (buf[0] as char) == '0'
+        && (buf[1] as char).to_ascii_lowercase() == 'x'
+    {
+        buf = &buf[2..];
+    }
+
+    let mut result = 0i32;
+    let mut digits = 0usize;
+    for b in buf {
+        let c = (*b as char).to_ascii_lowercase();
+        let v = c as u8
+            - if c >= '0' && c <= '9' {
+                '0' as u8
+            } else if c >= 'a' && c <= 'f' {
+                'a' as u8 - 10
+            } else {
+                break;
+            };
+
+        if v >= base {
+            break;
+        }
+
+        result = result
+            .checked_mul(base.into())
+            .ok_or(Error::ERANGE)?
+            .checked_add(v.into())
+            .ok_or(Error::ERANGE)?;
+
+        digits += 1;
+    }
+
+    if digits == 0 {
+        return Err(Error::EINVAL);
+    }
+
+    if digits < buf.len() {
+        // Allow for one new-line character at the end of the buffer.
+        if (buf[digits] as char) != '\n' || digits != buf.len() - 1 {
+            return Err(Error::EINVAL);
+        }
+    }
+
+    Ok(if neg {
+        result.checked_mul(-1).ok_or(Error::ERANGE)?
+    } else {
+        result
+    })
 }

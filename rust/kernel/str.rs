@@ -298,6 +298,13 @@ impl Index<ops::RangeFull> for CStr {
     fn index(&self, _index: ops::RangeFull) -> &Self::Output {
         self
     }
+
+}
+
+impl PartialEq for CStr {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_bytes() == other.as_bytes()
+    }
 }
 
 mod private {
