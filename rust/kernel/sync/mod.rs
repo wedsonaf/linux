@@ -37,7 +37,7 @@ pub use guard::{CreatableLock, Guard, GuardMut, Lock};
 pub use locked_by::LockedBy;
 pub use mutex::Mutex;
 pub use seqlock::{SeqLock, SeqLockReadGuard};
-pub use spinlock::SpinLock;
+pub use spinlock::{IrqDisableSpinLock, SpinLock};
 
 /// Safely initialises an object that has an `init` function that takes a name and a lock class as
 /// arguments, examples of these are [`Mutex`] and [`SpinLock`]. Each of them also provides a more
