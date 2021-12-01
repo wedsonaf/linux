@@ -43,11 +43,13 @@ pub use bindings;
 
 #[cfg(CONFIG_ARM_AMBA)]
 pub mod amba;
+pub mod blk;
 pub mod chrdev;
 #[cfg(CONFIG_COMMON_CLK)]
 pub mod clk;
 pub mod cred;
 pub mod device;
+pub mod dma;
 pub mod driver;
 pub mod error;
 pub mod file;
@@ -61,6 +63,7 @@ pub mod mm;
 #[cfg(CONFIG_NET)]
 pub mod net;
 pub mod pages;
+pub mod pci;
 pub mod power;
 pub mod revocable;
 pub mod security;
@@ -106,8 +109,8 @@ pub use build_error::build_error;
 
 pub use crate::error::{to_result, Error, Result};
 pub use crate::types::{
-    bit, bits_iter, ARef, AlwaysRefCounted, Bool, Either, Either::Left, Either::Right, False, Mode,
-    Opaque, PointerWrapper, ScopeGuard, True,
+    bit, bits_iter, ARef, AlwaysRefCounted, AtomicOptionalBoxedPtr, Bool, Either, Either::Left,
+    Either::Right, False, Mode, Opaque, PointerWrapper, ScopeGuard, True,
 };
 
 use core::marker::PhantomData;
@@ -116,6 +119,11 @@ use core::marker::PhantomData;
 ///
 /// [`PAGE_SHIFT`]: ../../../include/asm-generic/page.h
 pub const PAGE_SIZE: usize = 1 << bindings::PAGE_SHIFT;
+
+/// Number of bits 1 needs to be shifted left to make up the page size.
+///
+/// [`PAGE_SHIFT`]: ../../../include/asm-generic/page.h
+pub const PAGE_SHIFT: u32 = bindings::PAGE_SHIFT;
 
 /// Prefix to appear before log messages printed from within the kernel crate.
 const __LOG_PREFIX: &[u8] = b"rust_kernel\0";
@@ -262,4 +270,10 @@ fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
     // instead of `!`.
     // https://github.com/rust-lang/rust-bindgen/issues/2094
     loop {}
+}
+
+/// Returns maximum number of CPUs that may be online on the system.
+pub fn num_possible_cpus() -> u32 {
+    // SAFETY: FFI call with no additional requirements.
+    unsafe { bindings::num_possible_cpus() }
 }

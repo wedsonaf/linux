@@ -38,6 +38,9 @@
 #include <linux/skbuff.h>
 #include <linux/uaccess.h>
 #include <linux/uio.h>
+#include <linux/pci.h>
+#include <linux/blk-mq.h>
+#include <linux/blkdev.h>
 
 __noreturn void rust_helper_BUG(void)
 {
@@ -514,6 +517,18 @@ void rust_helper_write_seqcount_end(seqcount_t *s)
 }
 EXPORT_SYMBOL_GPL(rust_helper_write_seqcount_end);
 
+void rust_helper_pci_set_drvdata(struct pci_dev *dev, void *data)
+{
+	pci_set_drvdata(dev, data);
+}
+EXPORT_SYMBOL_GPL(rust_helper_pci_set_drvdata);
+
+void *rust_helper_pci_get_drvdata(struct pci_dev *dev)
+{
+	return pci_get_drvdata(dev);
+}
+EXPORT_SYMBOL_GPL(rust_helper_pci_get_drvdata);
+
 void rust_helper_irq_set_handler_locked(struct irq_data *data,
 					irq_flow_handler_t handler)
 {
@@ -632,6 +647,43 @@ struct dentry *rust_helper_dget(struct dentry *dentry)
 	return dget(dentry);
 }
 EXPORT_SYMBOL_GPL(rust_helper_dget);
+
+void *rust_helper_blk_mq_rq_to_pdu(struct request *rq)
+{
+	return blk_mq_rq_to_pdu(rq);
+}
+EXPORT_SYMBOL_GPL(rust_helper_blk_mq_rq_to_pdu);
+
+struct request *rust_helper_blk_mq_tag_to_rq(struct blk_mq_tags *tags,
+					     unsigned int tag)
+{
+	return blk_mq_tag_to_rq(tags, tag);
+}
+EXPORT_SYMBOL_GPL(rust_helper_blk_mq_tag_to_rq);
+
+unsigned short rust_helper_blk_rq_nr_phys_segments(struct request *rq)
+{
+	return blk_rq_nr_phys_segments(rq);
+}
+EXPORT_SYMBOL_GPL(rust_helper_blk_rq_nr_phys_segments);
+
+struct bio_vec rust_helper_req_bvec(struct request *rq)
+{
+	return req_bvec(rq);
+}
+EXPORT_SYMBOL_GPL(rust_helper_req_bvec);
+
+unsigned int rust_helper_blk_rq_payload_bytes(struct request *rq)
+{
+	return blk_rq_payload_bytes(rq);
+}
+EXPORT_SYMBOL_GPL(rust_helper_blk_rq_payload_bytes);
+
+unsigned int rust_helper_num_possible_cpus(void)
+{
+	return  num_possible_cpus();
+}
+EXPORT_SYMBOL_GPL(rust_helper_num_possible_cpus);
 
 /*
  * We use `bindgen`'s `--size_t-is-usize` option to bind the C `size_t` type
