@@ -154,7 +154,7 @@ static void esre_release(struct kobject *kobj)
 	kfree(entry);
 }
 
-static struct kobj_type esre1_ktype = {
+static const struct kobj_type esre1_ktype = {
 	.release = esre_release,
 	.sysfs_ops = &esre_attr_ops,
 	.default_attrs = esre1_attrs,

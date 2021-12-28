@@ -353,7 +353,7 @@ static struct attribute *def_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type efivar_ktype = {
+static const struct kobj_type efivar_ktype = {
 	.release = efivar_release,
 	.sysfs_ops = &efivar_attr_ops,
 	.default_attrs = def_attrs,
