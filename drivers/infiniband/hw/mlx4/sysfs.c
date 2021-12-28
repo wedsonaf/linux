@@ -427,7 +427,7 @@ static const struct sysfs_ops port_sysfs_ops = {
 	.store = port_attr_store,
 };
 
-static struct kobj_type port_type = {
+static const struct kobj_type port_type = {
 	.release    = mlx4_port_release,
 	.sysfs_ops  = &port_sysfs_ops,
 };
