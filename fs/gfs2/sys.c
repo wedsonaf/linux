@@ -373,7 +373,7 @@ static void gfs2_sbd_release(struct kobject *kobj)
 	complete(&sdp->sd_kobj_unregister);
 }
 
-static struct kobj_type gfs2_ktype = {
+static const struct kobj_type gfs2_ktype = {
 	.release = gfs2_sbd_release,
 	.default_groups = gfs2_groups,
 	.sysfs_ops     = &gfs2_attr_ops,
