@@ -119,7 +119,7 @@ static sector_t get_zone(sector_t sector, struct pktcdvd_device *pd)
 static struct pktcdvd_kobj* pkt_kobj_create(struct pktcdvd_device *pd,
 					const char* name,
 					struct kobject* parent,
-					struct kobj_type* ktype)
+					const struct kobj_type *ktype)
 {
 	struct pktcdvd_kobj *p;
 	int error;
@@ -300,12 +300,12 @@ static const struct sysfs_ops kobj_pkt_ops = {
 	.show = kobj_pkt_show,
 	.store = kobj_pkt_store
 };
-static struct kobj_type kobj_pkt_type_stat = {
+static const struct kobj_type kobj_pkt_type_stat = {
 	.release = pkt_kobj_release,
 	.sysfs_ops = &kobj_pkt_ops,
 	.default_attrs = kobj_pkt_attrs_stat
 };
-static struct kobj_type kobj_pkt_type_wqueue = {
+static const struct kobj_type kobj_pkt_type_wqueue = {
 	.release = pkt_kobj_release,
 	.sysfs_ops = &kobj_pkt_ops,
 	.default_attrs = kobj_pkt_attrs_wqueue
