@@ -145,7 +145,7 @@ static struct attribute *elog_default_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type elog_ktype = {
+static const struct kobj_type elog_ktype = {
 	.sysfs_ops = &elog_sysfs_ops,
 	.release = &elog_release,
 	.default_attrs = elog_default_attrs,

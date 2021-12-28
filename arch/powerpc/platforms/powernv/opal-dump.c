@@ -209,7 +209,7 @@ static struct attribute *dump_default_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type dump_ktype = {
+static const struct kobj_type dump_ktype = {
 	.sysfs_ops = &dump_sysfs_ops,
 	.release = &dump_release,
 	.default_attrs = dump_default_attrs,
