@@ -595,7 +595,7 @@ static const struct sysfs_ops hyp_sysfs_ops = {
 	.store = hyp_sysfs_store,
 };
 
-static struct kobj_type hyp_sysfs_kobj_type = {
+static const struct kobj_type hyp_sysfs_kobj_type = {
 	.sysfs_ops = &hyp_sysfs_ops,
 };
 
