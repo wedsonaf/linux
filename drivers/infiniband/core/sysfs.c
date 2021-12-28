@@ -771,13 +771,13 @@ static void ib_port_gid_attr_release(struct kobject *kobj)
 	kfree(gid_attr_group);
 }
 
-static struct kobj_type port_type = {
+static const struct kobj_type port_type = {
 	.release       = ib_port_release,
 	.sysfs_ops     = &port_sysfs_ops,
 	.default_attrs = port_default_attrs
 };
 
-static struct kobj_type gid_attr_type = {
+static const struct kobj_type gid_attr_type = {
 	.sysfs_ops      = &gid_attr_sysfs_ops,
 	.release        = ib_port_gid_attr_release
 };
