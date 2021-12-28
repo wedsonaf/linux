@@ -97,7 +97,7 @@ static struct attribute *pci_slot_default_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type pci_slot_ktype = {
+static const struct kobj_type pci_slot_ktype = {
 	.sysfs_ops = &pci_slot_sysfs_ops,
 	.release = &pci_slot_release,
 	.default_attrs = pci_slot_default_attrs,
