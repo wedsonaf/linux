@@ -244,7 +244,7 @@ static struct attribute *usnic_ib_qpn_default_attrs[] = {
 	NULL
 };
 
-static struct kobj_type usnic_ib_qpn_type = {
+static const struct kobj_type usnic_ib_qpn_type = {
 	.sysfs_ops = &usnic_ib_qpn_sysfs_ops,
 	.default_attrs = usnic_ib_qpn_default_attrs
 };
