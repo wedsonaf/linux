@@ -87,7 +87,7 @@ static void mdev_type_release(struct kobject *kobj)
 	kfree(type);
 }
 
-static struct kobj_type mdev_type_ktype = {
+static const struct kobj_type mdev_type_ktype = {
 	.sysfs_ops = &mdev_type_sysfs_ops,
 	.release = mdev_type_release,
 };
