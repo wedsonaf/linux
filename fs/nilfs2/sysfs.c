@@ -56,7 +56,7 @@ static void nilfs_##name##_attr_release(struct kobject *kobj) \
 						sg_##name##_kobj); \
 	complete(&subgroups->sg_##name##_kobj_unregister); \
 } \
-static struct kobj_type nilfs_##name##_ktype = { \
+static const struct kobj_type nilfs_##name##_ktype = { \
 	.default_attrs	= nilfs_##name##_attrs, \
 	.sysfs_ops	= &nilfs_##name##_attr_ops, \
 	.release	= nilfs_##name##_attr_release, \
@@ -165,7 +165,7 @@ static const struct sysfs_ops nilfs_snapshot_attr_ops = {
 	.store	= nilfs_snapshot_attr_store,
 };
 
-static struct kobj_type nilfs_snapshot_ktype = {
+static const struct kobj_type nilfs_snapshot_ktype = {
 	.default_attrs	= nilfs_snapshot_attrs,
 	.sysfs_ops	= &nilfs_snapshot_attr_ops,
 	.release	= nilfs_snapshot_attr_release,
@@ -960,7 +960,7 @@ static const struct sysfs_ops nilfs_dev_attr_ops = {
 	.store	= nilfs_dev_attr_store,
 };
 
-static struct kobj_type nilfs_dev_ktype = {
+static const struct kobj_type nilfs_dev_ktype = {
 	.default_attrs	= nilfs_dev_attrs,
 	.sysfs_ops	= &nilfs_dev_attr_ops,
 	.release	= nilfs_dev_attr_release,
