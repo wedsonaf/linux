@@ -895,7 +895,7 @@ static struct attribute *orangefs_default_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type orangefs_ktype = {
+static const struct kobj_type orangefs_ktype = {
 	.sysfs_ops = &orangefs_sysfs_ops,
 	.default_attrs = orangefs_default_attrs,
 };
@@ -932,7 +932,7 @@ static struct attribute *acache_orangefs_default_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type acache_orangefs_ktype = {
+static const struct kobj_type acache_orangefs_ktype = {
 	.sysfs_ops = &orangefs_sysfs_ops,
 	.default_attrs = acache_orangefs_default_attrs,
 };
@@ -969,7 +969,7 @@ static struct attribute *capcache_orangefs_default_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type capcache_orangefs_ktype = {
+static const struct kobj_type capcache_orangefs_ktype = {
 	.sysfs_ops = &orangefs_sysfs_ops,
 	.default_attrs = capcache_orangefs_default_attrs,
 };
@@ -1006,7 +1006,7 @@ static struct attribute *ccache_orangefs_default_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type ccache_orangefs_ktype = {
+static const struct kobj_type ccache_orangefs_ktype = {
 	.sysfs_ops = &orangefs_sysfs_ops,
 	.default_attrs = ccache_orangefs_default_attrs,
 };
@@ -1043,7 +1043,7 @@ static struct attribute *ncache_orangefs_default_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type ncache_orangefs_ktype = {
+static const struct kobj_type ncache_orangefs_ktype = {
 	.sysfs_ops = &orangefs_sysfs_ops,
 	.default_attrs = ncache_orangefs_default_attrs,
 };
@@ -1073,7 +1073,7 @@ static struct attribute *pc_orangefs_default_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type pc_orangefs_ktype = {
+static const struct kobj_type pc_orangefs_ktype = {
 	.sysfs_ops = &orangefs_sysfs_ops,
 	.default_attrs = pc_orangefs_default_attrs,
 };
@@ -1096,7 +1096,7 @@ static struct attribute *stats_orangefs_default_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type stats_orangefs_ktype = {
+static const struct kobj_type stats_orangefs_ktype = {
 	.sysfs_ops = &orangefs_sysfs_ops,
 	.default_attrs = stats_orangefs_default_attrs,
 };
