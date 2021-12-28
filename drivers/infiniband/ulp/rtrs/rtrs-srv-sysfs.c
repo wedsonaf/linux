@@ -21,7 +21,7 @@ static void rtrs_srv_release(struct kobject *kobj)
 	kfree(sess);
 }
 
-static struct kobj_type ktype = {
+static const struct kobj_type ktype = {
 	.sysfs_ops	= &kobj_sysfs_ops,
 	.release	= rtrs_srv_release,
 };
@@ -222,7 +222,7 @@ static void rtrs_srv_sess_stats_release(struct kobject *kobj)
 	kfree(stats);
 }
 
-static struct kobj_type ktype_stats = {
+static const struct kobj_type ktype_stats = {
 	.sysfs_ops = &kobj_sysfs_ops,
 	.release = rtrs_srv_sess_stats_release,
 };

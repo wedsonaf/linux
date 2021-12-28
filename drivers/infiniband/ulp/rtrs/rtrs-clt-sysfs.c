@@ -25,7 +25,7 @@ static void rtrs_clt_sess_release(struct kobject *kobj)
 	free_sess(sess);
 }
 
-static struct kobj_type ktype_sess = {
+static const struct kobj_type ktype_sess = {
 	.sysfs_ops = &kobj_sysfs_ops,
 	.release = rtrs_clt_sess_release
 };
@@ -41,7 +41,7 @@ static void rtrs_clt_sess_stats_release(struct kobject *kobj)
 	kfree(stats);
 }
 
-static struct kobj_type ktype_stats = {
+static const struct kobj_type ktype_stats = {
 	.sysfs_ops = &kobj_sysfs_ops,
 	.release = rtrs_clt_sess_stats_release,
 };
