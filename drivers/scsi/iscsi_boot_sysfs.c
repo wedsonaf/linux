@@ -61,7 +61,7 @@ static void iscsi_boot_kobj_release(struct kobject *kobj)
 	kfree(boot_kobj);
 }
 
-static struct kobj_type iscsi_boot_ktype = {
+static const struct kobj_type iscsi_boot_ktype = {
 	.release = iscsi_boot_kobj_release,
 	.sysfs_ops = &iscsi_boot_attr_ops,
 };
