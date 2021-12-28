@@ -607,7 +607,7 @@ static const struct sysfs_ops sde_sysfs_ops = {
 	.store = sde_store,
 };
 
-static struct kobj_type sde_ktype = {
+static const struct kobj_type sde_ktype = {
 	.sysfs_ops = &sde_sysfs_ops,
 };
 
