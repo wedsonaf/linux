@@ -42,7 +42,7 @@ static irqreturn_t ibmveth_interrupt(int irq, void *dev_instance);
 static void ibmveth_rxq_harvest_buffer(struct ibmveth_adapter *adapter);
 static unsigned long ibmveth_get_desired_dma(struct vio_dev *vdev);
 
-static struct kobj_type ktype_veth_pool;
+static const struct kobj_type ktype_veth_pool;
 
 
 static const char ibmveth_driver_name[] = "ibmveth";
@@ -1896,7 +1896,7 @@ static const struct sysfs_ops veth_pool_ops = {
 	.store  = veth_pool_store,
 };
 
-static struct kobj_type ktype_veth_pool = {
+static const struct kobj_type ktype_veth_pool = {
 	.release        = NULL,
 	.sysfs_ops      = &veth_pool_ops,
 	.default_attrs  = veth_pool_attrs,
