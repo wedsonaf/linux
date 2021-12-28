@@ -118,7 +118,7 @@ static const struct sysfs_ops dm_sysfs_ops = {
 	.store	= dm_attr_store,
 };
 
-static struct kobj_type dm_ktype = {
+static const struct kobj_type dm_ktype = {
 	.sysfs_ops	= &dm_sysfs_ops,
 	.default_attrs	= dm_attrs,
 	.release	= dm_kobject_release,
