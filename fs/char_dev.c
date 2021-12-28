@@ -617,11 +617,11 @@ static void cdev_dynamic_release(struct kobject *kobj)
 	kobject_put(parent);
 }
 
-static struct kobj_type ktype_cdev_default = {
+static const struct kobj_type ktype_cdev_default = {
 	.release	= cdev_default_release,
 };
 
-static struct kobj_type ktype_cdev_dynamic = {
+static const struct kobj_type ktype_cdev_dynamic = {
 	.release	= cdev_dynamic_release,
 };
 
