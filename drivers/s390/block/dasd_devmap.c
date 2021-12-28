@@ -1825,7 +1825,7 @@ static struct attribute *paths_info_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type path_attr_type = {
+static const struct kobj_type path_attr_type = {
 	.release	= dasd_path_release,
 	.default_attrs	= paths_info_attrs,
 	.sysfs_ops	= &kobj_sysfs_ops,
