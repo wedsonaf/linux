@@ -168,7 +168,7 @@ static const struct sysfs_ops ttm_mem_zone_ops = {
 	.store = &ttm_mem_zone_store
 };
 
-static struct kobj_type ttm_mem_zone_kobj_type = {
+static const struct kobj_type ttm_mem_zone_kobj_type = {
 	.release = &ttm_mem_zone_kobj_release,
 	.sysfs_ops = &ttm_mem_zone_ops,
 	.default_attrs = ttm_mem_zone_attrs,
@@ -232,7 +232,7 @@ static const struct sysfs_ops ttm_mem_global_ops = {
 	.store = &ttm_mem_global_store,
 };
 
-static struct kobj_type ttm_mem_glob_kobj_type = {
+static const struct kobj_type ttm_mem_glob_kobj_type = {
 	.sysfs_ops = &ttm_mem_global_ops,
 	.default_attrs = ttm_mem_global_attrs,
 };
