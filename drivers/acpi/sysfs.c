@@ -940,7 +940,7 @@ static struct attribute *hotplug_profile_attrs[] = {
 	NULL
 };
 
-static struct kobj_type acpi_hotplug_profile_ktype = {
+static const struct kobj_type acpi_hotplug_profile_ktype = {
 	.sysfs_ops = &kobj_sysfs_ops,
 	.default_attrs = hotplug_profile_attrs,
 };

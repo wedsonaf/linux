@@ -77,7 +77,7 @@ static void acpi_data_node_release(struct kobject *kobj)
 	complete(&dn->kobj_done);
 }
 
-static struct kobj_type acpi_data_node_ktype = {
+static const struct kobj_type acpi_data_node_ktype = {
 	.sysfs_ops = &acpi_data_node_sysfs_ops,
 	.default_attrs = acpi_data_node_default_attrs,
 	.release = acpi_data_node_release,
