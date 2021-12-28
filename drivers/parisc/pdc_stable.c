@@ -484,7 +484,7 @@ static struct attribute *paths_subsys_attrs[] = {
 };
 
 /* Specific kobject type for our PDC paths */
-static struct kobj_type ktype_pdcspath = {
+static const struct kobj_type ktype_pdcspath = {
 	.sysfs_ops = &pdcspath_attr_ops,
 	.default_attrs = paths_subsys_attrs,
 };
