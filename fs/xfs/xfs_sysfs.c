@@ -68,7 +68,7 @@ static struct attribute *xfs_mp_attrs[] = {
 	NULL,
 };
 
-struct kobj_type xfs_mp_ktype = {
+const struct kobj_type xfs_mp_ktype = {
 	.release = xfs_sysfs_release,
 	.sysfs_ops = &xfs_sysfs_ops,
 	.default_attrs = xfs_mp_attrs,
@@ -240,7 +240,7 @@ static struct attribute *xfs_dbg_attrs[] = {
 	NULL,
 };
 
-struct kobj_type xfs_dbg_ktype = {
+const struct kobj_type xfs_dbg_ktype = {
 	.release = xfs_sysfs_release,
 	.sysfs_ops = &xfs_sysfs_ops,
 	.default_attrs = xfs_dbg_attrs,
@@ -297,7 +297,7 @@ static struct attribute *xfs_stats_attrs[] = {
 	NULL,
 };
 
-struct kobj_type xfs_stats_ktype = {
+const struct kobj_type xfs_stats_ktype = {
 	.release = xfs_sysfs_release,
 	.sysfs_ops = &xfs_sysfs_ops,
 	.default_attrs = xfs_stats_attrs,
@@ -382,7 +382,7 @@ static struct attribute *xfs_log_attrs[] = {
 	NULL,
 };
 
-struct kobj_type xfs_log_ktype = {
+const struct kobj_type xfs_log_ktype = {
 	.release = xfs_sysfs_release,
 	.sysfs_ops = &xfs_sysfs_ops,
 	.default_attrs = xfs_log_attrs,
@@ -536,13 +536,13 @@ static struct attribute *xfs_error_attrs[] = {
 };
 
 
-static struct kobj_type xfs_error_cfg_ktype = {
+static const struct kobj_type xfs_error_cfg_ktype = {
 	.release = xfs_sysfs_release,
 	.sysfs_ops = &xfs_sysfs_ops,
 	.default_attrs = xfs_error_attrs,
 };
 
-static struct kobj_type xfs_error_ktype = {
+static const struct kobj_type xfs_error_ktype = {
 	.release = xfs_sysfs_release,
 	.sysfs_ops = &xfs_sysfs_ops,
 };
