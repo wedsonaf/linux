@@ -439,7 +439,7 @@ static struct attribute *sclp_sd_file_default_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type sclp_sd_file_ktype = {
+static const struct kobj_type sclp_sd_file_ktype = {
 	.sysfs_ops = &kobj_sysfs_ops,
 	.release = sclp_sd_file_release,
 	.default_attrs = sclp_sd_file_default_attrs,
