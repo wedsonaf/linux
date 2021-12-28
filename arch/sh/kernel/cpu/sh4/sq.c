@@ -330,7 +330,7 @@ static const struct sysfs_ops sq_sysfs_ops = {
 	.store	= sq_sysfs_store,
 };
 
-static struct kobj_type ktype_percpu_entry = {
+static const struct kobj_type ktype_percpu_entry = {
 	.sysfs_ops	= &sq_sysfs_ops,
 	.default_attrs	= sq_sysfs_attrs,
 };
