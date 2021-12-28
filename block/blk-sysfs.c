@@ -817,7 +817,7 @@ static const struct sysfs_ops queue_sysfs_ops = {
 	.store	= queue_attr_store,
 };
 
-struct kobj_type blk_queue_ktype = {
+const struct kobj_type blk_queue_ktype = {
 	.sysfs_ops	= &queue_sysfs_ops,
 	.release	= blk_release_queue,
 };

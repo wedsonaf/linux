@@ -159,7 +159,7 @@ static struct elevator_type *elevator_get(struct request_queue *q,
 	return e;
 }
 
-static struct kobj_type elv_ktype;
+static const struct kobj_type elv_ktype;
 
 struct elevator_queue *elevator_alloc(struct request_queue *q,
 				  struct elevator_type *e)
@@ -482,7 +482,7 @@ static const struct sysfs_ops elv_sysfs_ops = {
 	.store	= elv_attr_store,
 };
 
-static struct kobj_type elv_ktype = {
+static const struct kobj_type elv_ktype = {
 	.sysfs_ops	= &elv_sysfs_ops,
 	.release	= elevator_release,
 };
