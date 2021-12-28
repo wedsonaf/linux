@@ -31,7 +31,7 @@ static const struct kobj_ns_type_operations *nfs_netns_object_child_ns_type(
 	return &net_ns_type_operations;
 }
 
-static struct kobj_type nfs_netns_object_type = {
+static const struct kobj_type nfs_netns_object_type = {
 	.release = nfs_netns_object_release,
 	.sysfs_ops = &kobj_sysfs_ops,
 	.child_ns_type = nfs_netns_object_child_ns_type,
@@ -143,7 +143,7 @@ static struct attribute *nfs_netns_client_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type nfs_netns_client_type = {
+static const struct kobj_type nfs_netns_client_type = {
 	.release = nfs_netns_client_release,
 	.default_attrs = nfs_netns_client_attrs,
 	.sysfs_ops = &kobj_sysfs_ops,
