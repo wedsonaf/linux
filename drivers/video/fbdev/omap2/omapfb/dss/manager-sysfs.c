@@ -493,7 +493,7 @@ static const struct sysfs_ops manager_sysfs_ops = {
 	.store = manager_attr_store,
 };
 
-static struct kobj_type manager_ktype = {
+static const struct kobj_type manager_ktype = {
 	.sysfs_ops = &manager_sysfs_ops,
 	.default_attrs = manager_sysfs_attrs,
 };

@@ -426,7 +426,7 @@ static const struct sysfs_ops overlay_sysfs_ops = {
 	.store = overlay_attr_store,
 };
 
-static struct kobj_type overlay_ktype = {
+static const struct kobj_type overlay_ktype = {
 	.sysfs_ops = &overlay_sysfs_ops,
 	.default_attrs = overlay_sysfs_attrs,
 };

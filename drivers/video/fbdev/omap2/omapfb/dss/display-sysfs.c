@@ -301,7 +301,7 @@ static const struct sysfs_ops display_sysfs_ops = {
 	.store = display_attr_store,
 };
 
-static struct kobj_type display_ktype = {
+static const struct kobj_type display_ktype = {
 	.sysfs_ops = &display_sysfs_ops,
 	.default_attrs = display_sysfs_attrs,
 };
