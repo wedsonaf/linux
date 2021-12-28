@@ -137,7 +137,7 @@ static const struct sysfs_ops ocfs2_filecheck_ops = {
 	.store = ocfs2_filecheck_store,
 };
 
-static struct kobj_type ocfs2_ktype_filecheck = {
+static const struct kobj_type ocfs2_ktype_filecheck = {
 	.default_attrs = ocfs2_filecheck_attrs,
 	.sysfs_ops = &ocfs2_filecheck_ops,
 	.release = ocfs2_filecheck_release,

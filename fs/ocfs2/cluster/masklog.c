@@ -143,7 +143,7 @@ static const struct sysfs_ops mlog_attr_ops = {
 	.store = mlog_store,
 };
 
-static struct kobj_type mlog_ktype = {
+static const struct kobj_type mlog_ktype = {
 	.default_attrs = mlog_attr_ptrs,
 	.sysfs_ops     = &mlog_attr_ops,
 };
