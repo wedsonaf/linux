@@ -233,7 +233,7 @@ static void uncore_sysfs_entry_release(struct kobject *kobj)
 	complete(&data->kobj_unregister);
 }
 
-static struct kobj_type uncore_ktype = {
+static const struct kobj_type uncore_ktype = {
 	.release = uncore_sysfs_entry_release,
 	.sysfs_ops = &kobj_sysfs_ops,
 	.default_attrs = uncore_attrs,
