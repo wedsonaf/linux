@@ -761,7 +761,7 @@ static void dynamic_kobj_release(struct kobject *kobj)
 	kfree(kobj);
 }
 
-static struct kobj_type dynamic_kobj_ktype = {
+static const struct kobj_type dynamic_kobj_ktype = {
 	.release	= dynamic_kobj_release,
 	.sysfs_ops	= &kobj_sysfs_ops,
 };
@@ -938,7 +938,7 @@ static void kset_get_ownership(struct kobject *kobj, kuid_t *uid, kgid_t *gid)
 		kobject_get_ownership(kobj->parent, uid, gid);
 }
 
-static struct kobj_type kset_ktype = {
+static const struct kobj_type kset_ktype = {
 	.sysfs_ops	= &kobj_sysfs_ops,
 	.release	= kset_release,
 	.get_ownership	= kset_get_ownership,

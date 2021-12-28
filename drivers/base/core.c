@@ -2253,7 +2253,7 @@ static void device_get_ownership(struct kobject *kobj, kuid_t *uid, kgid_t *gid)
 		dev->class->get_ownership(dev, uid, gid);
 }
 
-static struct kobj_type device_ktype = {
+static const struct kobj_type device_ktype = {
 	.release	= device_release,
 	.sysfs_ops	= &dev_sysfs_ops,
 	.namespace	= device_namespace,
@@ -2924,7 +2924,7 @@ struct kobj_ns_type_operations *class_dir_child_ns_type(struct kobject *kobj)
 	return dir->class->ns_type;
 }
 
-static struct kobj_type class_dir_ktype = {
+static const struct kobj_type class_dir_ktype = {
 	.release	= class_dir_release,
 	.sysfs_ops	= &kobj_sysfs_ops,
 	.child_ns_type	= class_dir_child_ns_type
