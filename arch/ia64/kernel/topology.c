@@ -282,12 +282,12 @@ static const struct sysfs_ops cache_sysfs_ops = {
 	.show   = ia64_cache_show
 };
 
-static struct kobj_type cache_ktype = {
+static const struct kobj_type cache_ktype = {
 	.sysfs_ops	= &cache_sysfs_ops,
 	.default_attrs	= cache_default_attrs,
 };
 
-static struct kobj_type cache_ktype_percpu_entry = {
+static const struct kobj_type cache_ktype_percpu_entry = {
 	.sysfs_ops	= &cache_sysfs_ops,
 };
 
