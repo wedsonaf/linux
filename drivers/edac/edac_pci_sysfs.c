@@ -142,7 +142,7 @@ static struct instance_attribute *pci_instance_attr[] = {
 };
 
 /* the ktype for a pci instance */
-static struct kobj_type ktype_pci_instance = {
+static const struct kobj_type ktype_pci_instance = {
 	.release = edac_pci_instance_release,
 	.sysfs_ops = &pci_instance_ops,
 	.default_attrs = (struct attribute **)pci_instance_attr,
@@ -324,7 +324,7 @@ static void edac_pci_release_main_kobj(struct kobject *kobj)
 }
 
 /* ktype struct for the EDAC PCI main kobj */
-static struct kobj_type ktype_edac_pci_main_kobj = {
+static const struct kobj_type ktype_edac_pci_main_kobj = {
 	.release = edac_pci_release_main_kobj,
 	.sysfs_ops = &edac_pci_sysfs_ops,
 	.default_attrs = (struct attribute **)edac_pci_attr,
