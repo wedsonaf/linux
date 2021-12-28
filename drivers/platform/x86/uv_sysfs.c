@@ -202,7 +202,7 @@ static const struct sysfs_ops hub_sysfs_ops = {
 	.show = hub_type_show,
 };
 
-static struct kobj_type hub_attr_type = {
+static const struct kobj_type hub_attr_type = {
 	.release	= hub_release,
 	.sysfs_ops	= &hub_sysfs_ops,
 	.default_attrs	= uv_hub_attrs,
@@ -354,7 +354,7 @@ static const struct sysfs_ops uv_port_sysfs_ops = {
 	.show = uv_port_type_show,
 };
 
-static struct kobj_type uv_port_attr_type = {
+static const struct kobj_type uv_port_attr_type = {
 	.release	= uv_port_release,
 	.sysfs_ops	= &uv_port_sysfs_ops,
 	.default_attrs	= uv_port_attrs,
@@ -526,7 +526,7 @@ static const struct sysfs_ops uv_pci_top_sysfs_ops = {
 	.show = pci_top_type_show,
 };
 
-static struct kobj_type uv_pci_top_attr_type = {
+static const struct kobj_type uv_pci_top_attr_type = {
 	.release	= uv_pci_top_release,
 	.sysfs_ops	= &uv_pci_top_sysfs_ops,
 };
