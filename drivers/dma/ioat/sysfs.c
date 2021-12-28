@@ -72,7 +72,7 @@ const struct sysfs_ops ioat_sysfs_ops = {
 	.store  = ioat_attr_store,
 };
 
-void ioat_kobject_add(struct ioatdma_device *ioat_dma, struct kobj_type *type)
+void ioat_kobject_add(struct ioatdma_device *ioat_dma, const struct kobj_type *type)
 {
 	struct dma_device *dma = &ioat_dma->dma_dev;
 	struct dma_chan *c;
@@ -159,7 +159,7 @@ static struct attribute *ioat_attrs[] = {
 	NULL,
 };
 
-struct kobj_type ioat_ktype = {
+const struct kobj_type ioat_ktype = {
 	.sysfs_ops = &ioat_sysfs_ops,
 	.default_attrs = ioat_attrs,
 };
