@@ -2515,7 +2515,7 @@ static struct attribute *ab8500_fg_attrs[] = {
 	NULL,
 };
 
-static struct kobj_type ab8500_fg_ktype = {
+static const struct kobj_type ab8500_fg_ktype = {
 	.sysfs_ops = &ab8500_fg_sysfs_ops,
 	.default_attrs = ab8500_fg_attrs,
 };

@@ -1876,7 +1876,7 @@ static const struct sysfs_ops ab8500_chargalg_sysfs_ops = {
 	.store = ab8500_chargalg_sysfs_charger,
 };
 
-static struct kobj_type ab8500_chargalg_ktype = {
+static const struct kobj_type ab8500_chargalg_ktype = {
 	.sysfs_ops = &ab8500_chargalg_sysfs_ops,
 	.default_attrs = ab8500_chargalg_chg,
 };
