@@ -304,7 +304,7 @@ static struct attribute *dmi_sysfs_sel_attrs[] = {
 };
 
 
-static struct kobj_type dmi_system_event_log_ktype = {
+static const struct kobj_type dmi_system_event_log_ktype = {
 	.release = dmi_entry_free,
 	.sysfs_ops = &dmi_sysfs_specialize_attr_ops,
 	.default_attrs = dmi_sysfs_sel_attrs,
@@ -562,7 +562,7 @@ static void dmi_sysfs_entry_release(struct kobject *kobj)
 	kfree(entry);
 }
 
-static struct kobj_type dmi_sysfs_entry_ktype = {
+static const struct kobj_type dmi_sysfs_entry_ktype = {
 	.release = dmi_sysfs_entry_release,
 	.sysfs_ops = &dmi_sysfs_attr_ops,
 	.default_attrs = dmi_sysfs_entry_attrs,
