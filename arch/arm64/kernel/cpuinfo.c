@@ -224,7 +224,7 @@ const struct seq_operations cpuinfo_op = {
 };
 
 
-static struct kobj_type cpuregs_kobj_type = {
+static const struct kobj_type cpuregs_kobj_type = {
 	.sysfs_ops = &kobj_sysfs_ops,
 };
 
