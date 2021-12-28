@@ -1637,7 +1637,7 @@ static void slave_kobj_release(struct kobject *kobj)
 	kfree(slave);
 }
 
-static struct kobj_type slave_ktype = {
+static const struct kobj_type slave_ktype = {
 	.release = slave_kobj_release,
 #ifdef CONFIG_SYSFS
 	.sysfs_ops = &slave_sysfs_ops,
