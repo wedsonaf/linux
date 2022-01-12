@@ -11,6 +11,7 @@ use crate::{
     device::{self, RawDevice},
     driver,
     error::{from_kernel_result, Result},
+    io_mem,
     of,
     str::CStr,
     to_result,
@@ -161,6 +162,7 @@ pub trait Driver {
 /// The field `ptr` is non-null and valid for the lifetime of the object.
 pub struct Device {
     ptr: *mut bindings::platform_device,
+    reserved_mem_taken: bool,
 }
 
 impl Device {
@@ -172,13 +174,44 @@ impl Device {
     /// instance.
     unsafe fn from_ptr(ptr: *mut bindings::platform_device) -> Self {
         // INVARIANT: The safety requirements of the function ensure the lifetime invariant.
-        Self { ptr }
+        Self {
+            ptr,
+            reserved_mem_taken: false,
+        }
     }
 
     /// Returns id of the platform device.
     pub fn id(&self) -> i32 {
         // SAFETY: By the type invariants, we know that `self.ptr` is non-null and valid.
         unsafe { (*self.ptr).id }
+    }
+
+    /// Returns the open-firmware reserved memory associated with the device, if there is one.
+    ///
+    /// Ownership of the resource is transferred to the caller, so subsequent calls to this
+    /// function will return [`None`].
+    pub fn take_reserved_mem(&mut self) -> Option<io_mem::Resource> {
+        if self.reserved_mem_taken {
+            None
+        } else {
+            self.reserved_mem_taken = true;
+            self.of_reserved_mem_lookup()
+        }
+    }
+
+    #[cfg(not(CONFIG_OF_RESERVED_MEM))]
+    fn of_reserved_mem_lookup(&self) -> Option<io_mem::Resource> {
+        None
+    }
+
+    #[cfg(CONFIG_OF_RESERVED_MEM)]
+    fn of_reserved_mem_lookup(&self) -> Option<io_mem::Resource> {
+        let mem = unsafe { bindings::of_reserved_mem_lookup((*self.ptr).dev.of_node) };
+        if mem.is_null() {
+            None
+        } else {
+            io_mem::Resource::new_with_size(unsafe { (*mem).base }, unsafe { (*mem).size })
+        }
     }
 }
 

@@ -16,7 +16,7 @@ pub struct Resource {
 }
 
 impl Resource {
-    pub(crate) fn new(
+    pub(crate) fn new_with_end(
         start: bindings::resource_size_t,
         end: bindings::resource_size_t,
     ) -> Option<Self> {
@@ -26,6 +26,21 @@ impl Resource {
         Some(Self {
             offset: start,
             size: end.checked_sub(start)?.checked_add(1)?,
+        })
+    }
+
+    pub(crate) fn new_with_size(
+        addr: bindings::resource_size_t,
+        len: bindings::resource_size_t,
+    ) -> Option<Self> {
+        if addr == 0 {
+            return None;
+        }
+        // Check that`addr` + `len` doesn't overflow.
+        addr.checked_add(len)?;
+        Some(Self {
+            offset: addr,
+            size: len,
         })
     }
 }
