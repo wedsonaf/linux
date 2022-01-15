@@ -100,6 +100,27 @@ pub trait IoBufferWriter {
         // reference to a type that implements `WritableToBytes`.
         unsafe { self.write_raw(data as *const T as _, size_of::<T>()) }
     }
+
+    fn write_with_offset<T: WritableToBytes>(&mut self, offset64: u64, data: &T) -> Result<usize> {
+        let offset: usize = if let Ok(v) = offset64.try_into() {
+            v
+        } else {
+            return Ok(0)
+        };
+
+        let data_len = size_of::<T>();
+        if offset >= data_len {
+            return Ok(0);
+        }
+
+        let ptr = unsafe { (data as *const T as *const u8).add(offset) };
+        let len = core::cmp::min(self.len(), data_len - offset);
+
+        // SAFETY: The input buffer is valid as it's coming from a live reference to a type that
+        // implements `WritableToBytes`.
+        unsafe { self.write_raw(ptr, len) }?;
+        Ok(len)
+    }
 }
 
 /// Specifies that a type is safely readable from byte slices.
