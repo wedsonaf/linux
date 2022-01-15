@@ -43,6 +43,17 @@ impl Resource {
             size: len,
         })
     }
+
+    /// Returns the size of the resource.
+    pub fn size(&self) -> usize {
+        self.size as _
+    }
+
+    /// Returns whether the resource is page-aligned.
+    pub fn is_page_aligned(&self) -> bool {
+        let mask = !(crate::PAGE_SIZE as bindings::resource_size_t - 1);
+        self.size & mask == 0 && self.offset & mask == 0
+    }
 }
 
 /// Represents a memory block of at least `SIZE` bytes.
@@ -169,7 +180,7 @@ impl<const SIZE: usize> IoMem<SIZE> {
 
         // Try to map the resource.
         // SAFETY: Just mapping the memory range.
-        let addr = unsafe { bindings::ioremap(res.offset, res.size as _) };
+        let addr = unsafe { bindings::ioremap(res.offset, res.size.into()) };
         if addr.is_null() {
             Err(ENOMEM)
         } else {
@@ -287,5 +298,47 @@ impl<const SIZE: usize> Drop for IoMem<SIZE> {
         // SAFETY: By the type invariant, `self.ptr` is a value returned by a previous successful
         // call to `ioremap`.
         unsafe { bindings::iounmap(self.ptr as _) };
+    }
+}
+
+pub struct Remapped {
+    ptr: *mut u8,
+    size: usize,
+}
+
+impl Remapped {
+    // TODO: Need to mention that resource must not have side effects when written to.
+    // TODO: For now resource is taken as shared. How do we handle reading/writing safely?
+    pub unsafe fn try_new_wc(res: &Resource) -> Result<Self> {
+        let size = res.size.try_into()?;
+
+        // Try to map the resource.
+        // SAFETY: Just mapping the memory range.
+        let ptr = unsafe { bindings::memremap(res.offset, size, bindings::MEMREMAP_WC as _) };
+        if ptr.is_null() {
+            Err(ENOMEM)
+        } else {
+            Ok(Self {
+                ptr: ptr as _,
+                size,
+            })
+        }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        // TODO: Add SAFETY annotation.
+        unsafe { core::slice::from_raw_parts(self.ptr, self.size) }
+    }
+
+    // TODO: Safety requirements must say something about having copies of this.
+    pub unsafe fn as_slice_mut(&mut self) -> &mut [u8] {
+        // TODO: Add SAFETY annotation.
+        unsafe { core::slice::from_raw_parts_mut(self.ptr, self.size) }
+    }
+}
+
+impl Drop for Remapped {
+    fn drop(&mut self) {
+        unsafe { bindings::memunmap(self.ptr as _) };
     }
 }
