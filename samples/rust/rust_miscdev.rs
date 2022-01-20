@@ -132,7 +132,7 @@ impl KernelModule for RustMiscdev {
         let state = SharedState::try_new()?;
 
         Ok(RustMiscdev {
-            _dev: miscdev::Registration::new_pinned(name, state)?,
+            _dev: miscdev::Registration::new_pinned(fmt!("{name}"), state)?,
         })
     }
 }

@@ -3,7 +3,7 @@
 //! Broadcom BCM2835 Random Number Generator support.
 
 use kernel::{
-    c_str, device, file::File, file_operations::FileOperations, io_buffer::IoBufferWriter, miscdev,
+    device, file::File, file_operations::FileOperations, io_buffer::IoBufferWriter, miscdev,
     module_platform_driver, of, platform, prelude::*, sync::Ref,
 };
 
@@ -57,7 +57,7 @@ impl platform::Driver for RngDriver {
         data.registrations()
             .ok_or(Error::ENXIO)?
             .as_pinned_mut()
-            .register(c_str!("rust_hwrng"), ())?;
+            .register(fmt!("rust_hwrng"), ())?;
         Ok(data.into())
     }
 }

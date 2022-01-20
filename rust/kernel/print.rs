@@ -6,11 +6,12 @@
 //!
 //! Reference: <https://www.kernel.org/doc/html/latest/core-api/printk-basics.html>
 
+use alloc::boxed::Box;
 use core::cmp;
 use core::fmt;
 
-use crate::bindings;
 use crate::c_types::{c_char, c_void};
+use crate::{bindings, c_str, Error, Result};
 
 // Called from `vsprintf` with format specifier `%pA`.
 #[no_mangle]
@@ -56,6 +57,31 @@ unsafe fn rust_fmt_argument(buf: *mut c_char, end: *mut c_char, ptr: *const c_vo
     let _ = w.write_fmt(unsafe { *(ptr as *const fmt::Arguments<'_>) });
     w.buf as _
 }
+
+pub fn sprint(args: fmt::Arguments<'_>) -> Result<Box<[u8]>> {
+    // SAFETY: The "%pA" format string expects a pointer to `fmt::Arguments`, which is what
+    // we're passing as the last argument.
+    let new_str = unsafe {
+        bindings::kasprintf(
+            bindings::GFP_KERNEL,
+            c_str!("%pA").as_char_ptr(),
+            &args as *const _ as *const c_void,
+        )
+    };
+    if new_str.is_null() {
+        return Err(Error::ENOMEM);
+    }
+    let len = unsafe { bindings::strlen(new_str) } + 1;
+    let slice = core::ptr::slice_from_raw_parts_mut(new_str as *mut u8, len.try_into()?);
+    // SAFETY: The return value of `kasprintf` must be freed with `kfree`, which is what `Box`
+    // does.
+    Ok(unsafe { Box::from_raw(slice) })
+}
+
+#[macro_export]
+macro_rules! fmt (
+    ($($arg:tt)*) => ( core::format_args!($($arg)*) )
+);
 
 /// Format strings.
 ///

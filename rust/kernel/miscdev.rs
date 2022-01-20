@@ -6,13 +6,11 @@
 //!
 //! Reference: <https://www.kernel.org/doc/html/latest/driver-api/misc_devices.html>
 
-use crate::bindings;
 use crate::error::{Error, Result};
 use crate::file_operations::{FileOpenAdapter, FileOperations, FileOperationsVtable};
-use crate::{device, str::CStr, KernelModule, ThisModule};
+use crate::{bindings, device, str::CStr, KernelModule, ThisModule};
 use alloc::boxed::Box;
-use core::marker::PhantomPinned;
-use core::{mem::MaybeUninit, pin::Pin};
+use core::{fmt, marker::PhantomPinned, mem::MaybeUninit, pin::Pin};
 
 /// Options which can be used to configure how a misc device is registered.
 ///
@@ -73,7 +71,7 @@ impl<'a> Options<'a> {
     pub fn register<T: FileOperations>(
         &self,
         reg: Pin<&mut Registration<T>>,
-        name: &'static CStr,
+        name: fmt::Arguments<'_>,
         open_data: T::OpenData,
     ) -> Result {
         reg.register_with_options(name, open_data, self)
@@ -83,7 +81,7 @@ impl<'a> Options<'a> {
     /// configured options.
     pub fn register_new<T: FileOperations>(
         &self,
-        name: &'static CStr,
+        name: fmt::Arguments<'_>,
         open_data: T::OpenData,
     ) -> Result<Pin<Box<Registration<T>>>> {
         let mut r = Pin::from(Box::try_new(Registration::new())?);
@@ -100,6 +98,7 @@ impl<'a> Options<'a> {
 pub struct Registration<T: FileOperations> {
     registered: bool,
     mdev: bindings::miscdevice,
+    name: Option<Box<[u8]>>,
     _pin: PhantomPinned,
 
     /// Context initialised on construction and made available to all file instances on
@@ -116,6 +115,7 @@ impl<T: FileOperations> Registration<T> {
         Self {
             registered: false,
             mdev: bindings::miscdevice::default(),
+            name: None,
             _pin: PhantomPinned,
             open_data: MaybeUninit::uninit(),
         }
@@ -124,7 +124,7 @@ impl<T: FileOperations> Registration<T> {
     /// Registers a miscellaneous device.
     ///
     /// Returns a pinned heap-allocated representation of the registration.
-    pub fn new_pinned(name: &'static CStr, open_data: T::OpenData) -> Result<Pin<Box<Self>>> {
+    pub fn new_pinned(name: fmt::Arguments<'_>, open_data: T::OpenData) -> Result<Pin<Box<Self>>> {
         Options::new().register_new(name, open_data)
     }
 
@@ -132,7 +132,11 @@ impl<T: FileOperations> Registration<T> {
     ///
     /// It must be pinned because the memory block that represents the registration is
     /// self-referential.
-    pub fn register(self: Pin<&mut Self>, name: &'static CStr, open_data: T::OpenData) -> Result {
+    pub fn register(
+        self: Pin<&mut Self>,
+        name: fmt::Arguments<'_>,
+        open_data: T::OpenData,
+    ) -> Result {
         Options::new().register(self, name, open_data)
     }
 
@@ -143,7 +147,7 @@ impl<T: FileOperations> Registration<T> {
     /// self-referential.
     pub fn register_with_options(
         self: Pin<&mut Self>,
-        name: &'static CStr,
+        name: fmt::Arguments<'_>,
         open_data: T::OpenData,
         opts: &Options<'_>,
     ) -> Result {
@@ -154,9 +158,12 @@ impl<T: FileOperations> Registration<T> {
             return Err(Error::EINVAL);
         }
 
+        // TODO: Import this.
+        let name = crate::print::sprint(name)?;
+
         // SAFETY: The adapter is compatible with `misc_register`.
         this.mdev.fops = unsafe { FileOperationsVtable::<Self, T>::build() };
-        this.mdev.name = name.as_char_ptr();
+        this.mdev.name = &name[0] as *const _ as _;
         this.mdev.minor = opts.minor.unwrap_or(bindings::MISC_DYNAMIC_MINOR as i32);
         this.mdev.mode = opts.mode.unwrap_or(0);
         this.mdev.parent = opts
@@ -178,6 +185,8 @@ impl<T: FileOperations> Registration<T> {
             unsafe { this.open_data.assume_init_drop() };
             return Err(Error::from_kernel_errno(ret));
         }
+
+        this.name = Some(name);
 
         Ok(())
     }
@@ -235,7 +244,7 @@ pub struct Module<T: FileOperations<OpenData = ()>> {
 impl<T: FileOperations<OpenData = ()>> KernelModule for Module<T> {
     fn init(name: &'static CStr, _module: &'static ThisModule) -> Result<Self> {
         Ok(Self {
-            _dev: Registration::new_pinned(name, ())?,
+            _dev: Registration::new_pinned(core::format_args!("{}", name), ())?,
         })
     }
 }
