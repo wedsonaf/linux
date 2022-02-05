@@ -4,7 +4,7 @@
 //!
 //! C header: [`include/linux/mm.h`](../../../../include/linux/mm.h)
 
-use crate::{bindings, pages, to_result, Result};
+use crate::{bindings, io_mem, pages, to_result, Result};
 
 /// Virtual memory.
 pub mod virt {
@@ -67,6 +67,11 @@ pub mod virt {
             // `address` is already checked by `vm_insert_page`. `self.vma` and `page.pages` are
             // guaranteed by their repective type invariants to be valid.
             to_result(|| unsafe { bindings::vm_insert_page(self.vma, address as _, page.pages) })
+        }
+
+        /// Maps the given physical memory resource into the virtual memory area.
+        pub fn iomap_memory(&mut self, mem: &io_mem::Resource) -> Result {
+            to_result(|| unsafe { bindings::vm_iomap_memory(self.vma, mem.offset, mem.size) })
         }
     }
 
