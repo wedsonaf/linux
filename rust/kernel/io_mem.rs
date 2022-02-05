@@ -11,8 +11,8 @@ use core::convert::TryInto;
 
 /// Represents a memory resource.
 pub struct Resource {
-    offset: bindings::resource_size_t,
-    size: bindings::resource_size_t,
+    pub(crate) offset: bindings::resource_size_t,
+    pub(crate) size: bindings::resource_size_t,
 }
 
 impl Resource {
