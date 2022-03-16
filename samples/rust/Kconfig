@@ -130,6 +130,16 @@ config SAMPLE_RUST_NETFILTER
 
 	  If unsure, say N.
 
+config SAMPLE_RUST_SMUTEX
+	tristate "Simple mutex sample"
+	help
+	  This option builds the Rust simple mutex device driver sample.
+
+	  To compile this as a module, choose M here:
+	  the module will be called rust_smutex.
+
+	  If unsure, say N.
+
 config SAMPLE_RUST_HOSTPROGS
 	bool "Host programs"
 	help
