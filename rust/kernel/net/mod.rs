@@ -10,6 +10,7 @@ use crate::{bindings, str::CStr, ARef, AlwaysRefCounted};
 use core::{cell::UnsafeCell, ptr::NonNull};
 
 pub mod filter;
+pub mod header;
 
 /// Wraps the kernel's `struct net_device`.
 #[repr(transparent)]

@@ -350,6 +350,13 @@ impl<T: Copy> ops::Not for Bit<T> {
     }
 }
 
+/// Implemented by integer types that allow changing their endianness
+pub trait Endianness {
+    fn to_le(&self) -> Self;
+    fn to_be(&self) -> Self;
+    fn from_be(&self) -> Self;
+}
+
 /// Implemented by integer types that allow counting the number of trailing zeroes.
 pub trait TrailingZeros {
     /// Returns the number of trailing zeroes in the binary representation of `self`.
@@ -358,6 +365,20 @@ pub trait TrailingZeros {
 
 macro_rules! define_unsigned_number_traits {
     ($type_name:ty) => {
+        impl Endianness for $type_name {
+            fn to_le(&self) -> Self {
+                <$type_name>::to_le(*self)
+            }
+
+            fn to_be(&self) -> Self {
+                <$type_name>::to_be(*self)
+            }
+
+            fn from_be(&self) -> Self {
+                <$type_name>::from_be(*self)
+            }
+        }
+
         impl TrailingZeros for $type_name {
             fn trailing_zeros(&self) -> u32 {
                 <$type_name>::trailing_zeros(*self)
@@ -672,5 +693,15 @@ impl<T: AlwaysRefCounted> Drop for ARef<T> {
         // SAFETY: The type invariants guarantee that the `ARef` owns the reference we're about to
         // decrement.
         unsafe { T::dec_ref(self.ptr) };
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[repr(transparent)]
+pub struct be<T: Endianness>(T);
+
+impl<T: Endianness> be<T> {
+    pub fn to_ne(&self) -> T {
+        self.0.from_be()
     }
 }

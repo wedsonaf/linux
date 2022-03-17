@@ -98,9 +98,8 @@ pub use build_error::build_error;
 
 pub use crate::error::{to_result, Error, Result};
 pub use crate::types::{
-    bit, bits_iter, ARef, AlwaysRefCounted, Bool, False, Mode, Opaque, ScopeGuard, True,
+    be, bit, bits_iter, ARef, AlwaysRefCounted, Bool, False, Mode, Opaque, ScopeGuard, True,
 };
-
 use core::marker::PhantomData;
 
 /// Page size defined in terms of the `PAGE_SHIFT` macro from C.

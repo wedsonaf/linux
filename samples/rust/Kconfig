@@ -120,6 +120,16 @@ config SAMPLE_RUST_PLATFORM
 
 	  If unsure, say N.
 
+config SAMPLE_RUST_NETFILTER
+	tristate "Network filter driver"
+	help
+	  This option builds the Rust netfilter driver sample.
+
+	  To compile this as a module, choose M here:
+	  the module will be called rust_netfilter.
+
+	  If unsure, say N.
+
 config SAMPLE_RUST_HOSTPROGS
 	bool "Host programs"
 	help
