@@ -57,6 +57,7 @@ pub mod hwrng;
 pub mod irq;
 pub mod miscdev;
 pub mod mm;
+pub mod net;
 pub mod pages;
 pub mod power;
 pub mod revocable;

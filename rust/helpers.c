@@ -36,6 +36,8 @@
 #include <linux/irqdomain.h>
 #include <linux/amba/bus.h>
 #include <linux/of_device.h>
+#include <linux/skbuff.h>
+#include <linux/netdevice.h>
 
 __noreturn void rust_helper_BUG(void)
 {
@@ -506,6 +508,42 @@ const struct of_device_id *rust_helper_of_match_device(
 	return of_match_device(matches, dev);
 }
 EXPORT_SYMBOL_GPL(rust_helper_of_match_device);
+
+struct sk_buff *rust_helper_skb_get(struct sk_buff *skb)
+{
+	return skb_get(skb);
+}
+EXPORT_SYMBOL_GPL(rust_helper_skb_get);
+
+unsigned int rust_helper_skb_headlen(const struct sk_buff *skb)
+{
+	return skb_headlen(skb);
+}
+EXPORT_SYMBOL_GPL(rust_helper_skb_headlen);
+
+void rust_helper_dev_hold(struct net_device *dev)
+{
+	return dev_hold(dev);
+}
+EXPORT_SYMBOL_GPL(rust_helper_dev_hold);
+
+void rust_helper_dev_put(struct net_device *dev)
+{
+	return dev_put(dev);
+}
+EXPORT_SYMBOL_GPL(rust_helper_dev_put);
+
+struct net *rust_helper_get_net(struct net *net)
+{
+	return get_net(net);
+}
+EXPORT_SYMBOL_GPL(rust_helper_get_net);
+
+void rust_helper_put_net(struct net *net)
+{
+	return put_net(net);
+}
+EXPORT_SYMBOL_GPL(rust_helper_put_net);
 
 /*
  * We use `bindgen`'s `--size_t-is-usize` option to bind the C `size_t` type
