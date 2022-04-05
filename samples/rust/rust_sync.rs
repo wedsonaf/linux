@@ -5,7 +5,7 @@
 use kernel::prelude::*;
 use kernel::{
     condvar_init, mutex_init, spinlock_init,
-    sync::{CondVar, Mutex, SpinLock},
+    sync::{CondVar, Mutex, SeqLock, SpinLock},
 };
 
 module! {
@@ -73,6 +73,27 @@ impl kernel::Module for RustSync {
             condvar_init!(cv.as_mut(), "RustSync::init::cv2");
             {
                 let mut guard = data.lock();
+                while *guard != 10 {
+                    let _ = cv.wait(&mut guard);
+                }
+            }
+            cv.notify_one();
+            cv.notify_all();
+            cv.free_waiters();
+        }
+
+        // Test sequence locks.
+        {
+            // SAFETY: `init` is called below.
+            let mut data = Pin::from(Box::try_new(unsafe { SeqLock::<SpinLock<u32>>::new(0) })?);
+            kernel::init_with_lockdep!(data.as_mut(), "RustSync::init::data3");
+            pr_info!("Value: {}\n", *data.write());
+
+            // SAFETY: `init` is called below.
+            let mut cv = Pin::from(Box::try_new(unsafe { CondVar::new() })?);
+            condvar_init!(cv.as_mut(), "RustSync::init::cv3");
+            {
+                let mut guard = data.write();
                 while *guard != 10 {
                     let _ = cv.wait(&mut guard);
                 }
