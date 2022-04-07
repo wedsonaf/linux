@@ -407,6 +407,16 @@ impl<T: DeviceRemoval> DeviceRemoval for Box<T> {
     }
 }
 
+impl<F: crate::sync::LockFactory, T> DeviceRemoval for crate::sync::Revocable<F, T>
+where
+    F::LockedType<super::sync::revocable::Inner<T>>:
+        crate::sync::Lock<Inner = super::sync::revocable::Inner<T>>,
+{
+    fn device_remove(&self) {
+        self.revoke();
+    }
+}
+
 /// A kernel module that only registers the given driver on init.
 ///
 /// This is a helper struct to make it easier to define single-functionality modules, in this case,

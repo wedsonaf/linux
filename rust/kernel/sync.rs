@@ -28,7 +28,7 @@ mod condvar;
 mod guard;
 mod locked_by;
 mod mutex;
-mod revocable;
+pub(crate) mod revocable;
 mod rwsem;
 mod seqlock;
 pub mod smutex;
