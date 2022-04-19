@@ -231,7 +231,7 @@ impl SocketAddrV6 {
 ///
 /// The socket pointer is always non-null and valid.
 pub struct TcpListener {
-    sock: *mut bindings::socket,
+    pub(crate) sock: *mut bindings::socket,
 }
 
 // SAFETY: `TcpListener` is just a wrapper for a kernel socket, which can be used from any thread.
@@ -313,7 +313,7 @@ impl Drop for TcpListener {
 ///
 /// The socket pointer is always non-null and valid.
 pub struct TcpStream {
-    sock: *mut bindings::socket,
+    pub(crate) sock: *mut bindings::socket,
 }
 
 // SAFETY: `TcpStream` is just a wrapper for a kernel socket, which can be used from any thread.
@@ -332,7 +332,7 @@ impl TcpStream {
     /// - If `block` is `false`, returns [`crate::error::code::EAGAIN`];
     /// - If `block` is `true`, blocks until an error occurs, the connection is closed, or some
     ///   becomes readable.
-    pub fn read(&mut self, buf: &mut [u8], block: bool) -> Result<usize> {
+    pub fn read(&self, buf: &mut [u8], block: bool) -> Result<usize> {
         let mut msg = bindings::msghdr::default();
         let mut vec = bindings::kvec {
             iov_base: buf.as_mut_ptr().cast(),
@@ -364,7 +364,7 @@ impl TcpStream {
     /// If the send buffer of the socket is full, one of two behaviours will occur:
     /// - If `block` is `false`, returns [`crate::error::code::EAGAIN`];
     /// - If `block` is `true`, blocks until an error occurs or some data is written.
-    pub fn write(&mut self, buf: &[u8], block: bool) -> Result<usize> {
+    pub fn write(&self, buf: &[u8], block: bool) -> Result<usize> {
         let mut msg = bindings::msghdr {
             msg_flags: if block { 0 } else { bindings::MSG_DONTWAIT },
             ..bindings::msghdr::default()

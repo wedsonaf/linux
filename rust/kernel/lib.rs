@@ -54,6 +54,7 @@ pub mod file;
 pub mod gpio;
 pub mod hwrng;
 pub mod irq;
+pub mod kasync;
 pub mod miscdev;
 pub mod mm;
 #[cfg(CONFIG_NET)]
