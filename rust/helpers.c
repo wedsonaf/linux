@@ -615,6 +615,12 @@ unsigned int rust_helper_NF_QUEUE_NR(unsigned int n)
 }
 EXPORT_SYMBOL_GPL(rust_helper_NF_QUEUE_NR);
 
+int rust_helper_ktime_compare(const ktime_t cmp1, const ktime_t cmp2)
+{
+	return ktime_compare(cmp1, cmp2);
+}
+EXPORT_SYMBOL_GPL(rust_helper_ktime_compare);
+
 /*
  * We use `bindgen`'s `--size_t-is-usize` option to bind the C `size_t` type
  * as the Rust `usize` type, so we can use it in contexts where Rust
