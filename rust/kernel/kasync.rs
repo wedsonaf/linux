@@ -6,6 +6,7 @@ use crate::{bindings, sync::NoWaitLock};
 use core::task::{Context, Poll, Waker};
 use core::{cell::UnsafeCell, future::Future, marker::PhantomPinned, pin::Pin, time};
 
+pub mod executor;
 #[cfg(CONFIG_NET)]
 pub mod net;
 
