@@ -66,7 +66,6 @@ pub mod str;
 pub mod task;
 
 pub mod linked_list;
-mod raw_list;
 pub mod rbtree;
 pub mod unsafe_list;
 

@@ -5,13 +5,8 @@
 //! TODO: This module is a work in progress.
 
 use kernel::{
-    io_buffer::IoBufferWriter,
-    linked_list::{GetLinks, GetLinksWrapped, Links},
-    miscdev::Registration,
-    prelude::*,
-    str::CStr,
-    sync::Ref,
-    user_ptr::UserSlicePtrWriter,
+    io_buffer::IoBufferWriter, linked_list::Links, miscdev::Registration, prelude::*, str::CStr,
+    sync::Ref, user_ptr::UserSlicePtrWriter,
 };
 
 mod allocation;
@@ -52,19 +47,7 @@ trait DeliverToRead {
     fn get_links(&self) -> &Links<dyn DeliverToRead>;
 }
 
-struct DeliverToReadListAdapter {}
-
-impl GetLinks for DeliverToReadListAdapter {
-    type EntryType = dyn DeliverToRead;
-
-    fn get_links(data: &Self::EntryType) -> &Links<Self::EntryType> {
-        data.get_links()
-    }
-}
-
-impl GetLinksWrapped for DeliverToReadListAdapter {
-    type Wrapped = Ref<dyn DeliverToRead>;
-}
+kernel::impl_custom_self_list_adapter!(dyn DeliverToRead, |obj| obj.get_links());
 
 struct DeliverCode {
     code: u32,

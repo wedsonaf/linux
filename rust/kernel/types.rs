@@ -159,6 +159,85 @@ impl PointerWrapper for () {
     unsafe fn from_pointer(_: *const c_types::c_void) -> Self {}
 }
 
+/// Used to convert an object into a typed pointer that represents it.
+///
+/// It can eventually be converted back into the object.
+pub trait TypedPointerWrapper {
+    /// The type that is wrapped.
+    type Target: ?Sized;
+
+    /// Determines if the pointed-to values writable (mutable).
+    type Writable: Bool;
+
+    /// Type of values borrowed between calls to [`TypedPointerWrapper::into_pointer`] and
+    /// [`TypedPointerWrapper::from_pointer`].
+    type Borrowed<'a>;
+
+    /// Converts the wrapped object into a pointer that represents it.
+    fn into_pointer(self) -> NonNull<Self::Target>;
+
+    /// Returns a borrowed value.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must have been returned by a previous call to [`TypedPointerWrapper::into_pointer`].
+    /// Additionally, [`TypedPointerWrapper::from_pointer`] can only be called after *all* values
+    /// returned by [`TypedPointerWrapper::borrow`] have been dropped.
+    unsafe fn borrow<'a>(ptr: NonNull<Self::Target>) -> Self::Borrowed<'a>;
+
+    /// Converts the object back from the pointer representation.
+    ///
+    /// # Safety
+    ///
+    /// The passed pointer must come from a previous call to
+    /// [`TypedPointerWrapper::into_pointer()`].
+    unsafe fn from_pointer(ptr: NonNull<Self::Target>) -> Self;
+}
+
+impl<T: 'static + ?Sized> TypedPointerWrapper for Box<T> {
+    type Target = T;
+    type Writable = True;
+    type Borrowed<'a> = &'a T;
+
+    fn into_pointer(self) -> NonNull<T> {
+        NonNull::new(Box::into_raw(self)).unwrap()
+    }
+
+    unsafe fn borrow<'a>(ptr: NonNull<T>) -> &'a T {
+        // SAFETY: The safety requirements for this function ensure that the object is still alive,
+        // so it is safe to dereference the raw pointer.
+        // The safety requirements also ensure that the object remains alive for the lifetime of
+        // the returned value.
+        unsafe { ptr.as_ref() }
+    }
+
+    unsafe fn from_pointer(ptr: NonNull<T>) -> Self {
+        unsafe { Box::from_raw(ptr.as_ptr()) }
+    }
+}
+
+impl<T: 'static + ?Sized> TypedPointerWrapper for Ref<T> {
+    type Target = T;
+    type Writable = False;
+    type Borrowed<'a> = RefBorrow<'a, T>;
+
+    fn into_pointer(self) -> NonNull<T> {
+        NonNull::new(Ref::into_raw(self) as _).unwrap()
+    }
+
+    unsafe fn borrow<'a>(ptr: NonNull<T>) -> RefBorrow<'a, T> {
+        todo!()
+        // SAFETY: The safety requirements for this function ensure that the underlying object
+        // remains valid for the lifetime of the returned value.
+//        unsafe { Ref::borrow_usize(ptr as _) }
+    }
+
+    unsafe fn from_pointer(ptr: NonNull<T>) -> Self {
+        // SAFETY: The safety requirements of `from_pointer` satisfy the ones from `Ref::from_raw`.
+        unsafe { Ref::from_raw(ptr.as_ptr() as _) }
+    }
+}
+
 /// Runs a cleanup function/closure when dropped.
 ///
 /// The [`ScopeGuard::dismiss`] function prevents the cleanup function from running.

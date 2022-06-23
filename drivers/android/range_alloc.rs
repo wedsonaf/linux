@@ -2,11 +2,11 @@
 
 use core::ptr::NonNull;
 use kernel::{
-    linked_list::{CursorMut, GetLinks, Links, List},
+    linked_list::{Adapter, CursorMut, Links, List},
     prelude::*,
 };
 
-pub(crate) struct RangeAllocator<T> {
+pub(crate) struct RangeAllocator<T: 'static> {
     list: List<Box<Descriptor<T>>>,
 }
 
@@ -17,7 +17,7 @@ enum DescriptorState {
     Allocated,
 }
 
-impl<T> RangeAllocator<T> {
+impl<T: 'static> RangeAllocator<T> {
     pub(crate) fn new(size: usize) -> Result<Self> {
         let desc = Box::try_new(Descriptor::new(0, size))?;
         let mut list = List::new();
@@ -181,9 +181,9 @@ impl<T> Descriptor<T> {
     }
 }
 
-impl<T> GetLinks for Descriptor<T> {
+impl<T> Adapter for Descriptor<T> {
     type EntryType = Self;
-    fn get_links(desc: &Self) -> &Links<Self> {
+    fn to_links(desc: &Self) -> &Links<Self> {
         &desc.links
     }
 }

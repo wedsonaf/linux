@@ -5,8 +5,7 @@ use kernel::{
     bindings,
     file::{File, FileDescriptorReservation},
     io_buffer::IoBufferWriter,
-    linked_list::List,
-    linked_list::{GetLinks, Links},
+    linked_list::{Links, List},
     prelude::*,
     sync::{Ref, SpinLock, UniqueRef},
     user_ptr::UserSlicePtrWriter,
@@ -317,10 +316,4 @@ impl FileInfo {
     }
 }
 
-impl GetLinks for FileInfo {
-    type EntryType = Self;
-
-    fn get_links(data: &Self::EntryType) -> &Links<Self::EntryType> {
-        &data.links
-    }
-}
+kernel::impl_self_list_adapter!(FileInfo, links);

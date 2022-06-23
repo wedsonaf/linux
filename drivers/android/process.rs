@@ -23,7 +23,7 @@ use crate::{
     node::{Node, NodeDeath, NodeRef},
     range_alloc::RangeAllocator,
     thread::{BinderError, BinderResult, Thread},
-    DeliverToRead, DeliverToReadListAdapter, Either,
+    DeliverToRead, Either,
 };
 
 // TODO: Review this:
@@ -57,7 +57,7 @@ pub(crate) struct ProcessInner {
     is_dead: bool,
     threads: RBTree<i32, Ref<Thread>>,
     ready_threads: List<Ref<Thread>>,
-    work: List<DeliverToReadListAdapter>,
+    work: List<Ref<dyn DeliverToRead>>,
     mapping: Option<Mapping>,
     nodes: RBTree<usize, Ref<Node>>,
 
@@ -198,7 +198,7 @@ impl ProcessInner {
     /// delivered list, and returns it.
     fn pull_delivered_death(&mut self, cookie: usize) -> Option<Ref<NodeDeath>> {
         let mut cursor = self.delivered_deaths.cursor_front_mut();
-        while let Some(death) = cursor.current() {
+        while let Some(death) = cursor.as_cursor().current() {
             if death.cookie == cookie {
                 return cursor.remove_current();
             }

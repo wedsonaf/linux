@@ -3,7 +3,7 @@
 use core::sync::atomic::{AtomicU64, Ordering};
 use kernel::{
     io_buffer::IoBufferWriter,
-    linked_list::{GetLinks, Links, List},
+    linked_list::{Links, List},
     prelude::*,
     sync::{Guard, LockedBy, Mutex, Ref, SpinLock},
     user_ptr::UserSlicePtrWriter,
@@ -160,12 +160,7 @@ impl NodeDeath {
     }
 }
 
-impl GetLinks for NodeDeath {
-    type EntryType = NodeDeath;
-    fn get_links(data: &NodeDeath) -> &Links<NodeDeath> {
-        &data.death_links
-    }
-}
+kernel::impl_self_list_adapter!(NodeDeath, death_links);
 
 impl DeliverToRead for NodeDeath {
     fn do_work(self: Ref<Self>, _thread: &Thread, writer: &mut UserSlicePtrWriter) -> Result<bool> {

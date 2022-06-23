@@ -9,7 +9,7 @@ use kernel::{
     bindings,
     file::{File, PollTable},
     io_buffer::{IoBufferReader, IoBufferWriter},
-    linked_list::{GetLinks, Links, List},
+    linked_list::{Links, List},
     prelude::*,
     security,
     sync::{CondVar, Ref, SpinLock, UniqueRef},
@@ -22,7 +22,7 @@ use crate::{
     process::{AllocationInfo, Process},
     ptr_align,
     transaction::{FileInfo, Transaction},
-    DeliverCode, DeliverToRead, DeliverToReadListAdapter, Either,
+    DeliverCode, DeliverToRead, Either,
 };
 
 pub(crate) type BinderResult<T = ()> = core::result::Result<T, BinderError>;
@@ -85,7 +85,7 @@ struct InnerThread {
     /// Determines whether the work list below should be processed. When set to false, `work_list`
     /// is treated as if it were empty.
     process_work_list: bool,
-    work_list: List<DeliverToReadListAdapter>,
+    work_list: List<Ref<dyn DeliverToRead>>,
     current_transaction: Option<Ref<Transaction>>,
 }
 
@@ -827,12 +827,7 @@ impl Thread {
     }
 }
 
-impl GetLinks for Thread {
-    type EntryType = Thread;
-    fn get_links(data: &Thread) -> &Links<Thread> {
-        &data.links
-    }
-}
+kernel::impl_self_list_adapter!(Thread, links);
 
 struct ThreadError {
     error_code: AtomicU32,
