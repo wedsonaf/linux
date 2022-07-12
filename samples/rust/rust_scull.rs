@@ -33,11 +33,15 @@ impl file::Operations for Scull {
     fn read(
         data: RefBorrow<'_, Device>,
         _file: &file::File,
-        _writer: &mut impl IoBufferWriter,
-        _offset: u64,
+        writer: &mut impl IoBufferWriter,
+        offset: u64,
     ) -> Result<usize> {
         pr_info!("File for device {} was read\n", data.number);
-        Ok(0)
+        let offset = offset.try_into()?;
+        let vec = data.contents.lock();
+        let len = core::cmp::min(writer.len(), vec.len().saturating_sub(offset));
+        writer.write_slice(&vec[offset..][..len])?;
+        Ok(len)
     }
 
     fn write(
