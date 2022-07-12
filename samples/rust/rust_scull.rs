@@ -2,7 +2,7 @@
 
 use kernel::io_buffer::{IoBufferReader, IoBufferWriter};
 use kernel::prelude::*;
-use kernel::sync::Ref;
+use kernel::sync::{Ref, RefBorrow};
 use kernel::{file, miscdev};
 
 module! {
@@ -22,29 +22,30 @@ struct Scull {
 #[vtable]
 impl file::Operations for Scull {
     type OpenData = Ref<Device>;
+    type Data = Ref<Device>;
 
-    fn open(context: &Ref<Device>, _file: &file::File) -> Result {
+    fn open(context: &Ref<Device>, _file: &file::File) -> Result<Ref<Device>> {
         pr_info!("File for device {} was opened\n", context.number);
-        Ok(())
+        Ok(context.clone())
     }
 
     fn read(
-        _data: (),
+        data: RefBorrow<'_, Device>,
         _file: &file::File,
         _writer: &mut impl IoBufferWriter,
         _offset: u64,
     ) -> Result<usize> {
-        pr_info!("File was read\n");
+        pr_info!("File for device {} was read\n", data.number);
         Ok(0)
     }
 
     fn write(
-        _data: (),
+        data: RefBorrow<'_, Device>,
         _file: &file::File,
         reader: &mut impl IoBufferReader,
         _offset: u64,
     ) -> Result<usize> {
-        pr_info!("File was written\n");
+        pr_info!("File for device {} was written\n", data.number);
         Ok(reader.len())
     }
 }
