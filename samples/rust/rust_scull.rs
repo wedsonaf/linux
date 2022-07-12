@@ -24,7 +24,7 @@ struct Device {
 }
 
 struct Scull {
-    _dev: Pin<Box<miscdev::Registration<Scull>>>,
+    _devs: Vec<Pin<Box<miscdev::Registration<Scull>>>>,
 }
 
 #[vtable]
@@ -75,13 +75,20 @@ impl file::Operations for Scull {
 
 impl kernel::Module for Scull {
     fn init(_name: &'static CStr, module: &'static ThisModule) -> Result<Self> {
-        let lock = module.kernel_param_lock();
-        pr_info!("Hello world, {} devices!\n", nr_devs.read(&lock));
-        let dev = Ref::try_new(Device {
-            number: 0,
-            contents: Mutex::new(Vec::new()),
-        })?;
-        let reg = miscdev::Registration::new_pinned(fmt!("scull"), dev)?;
-        Ok(Self { _dev: reg })
+        let count = {
+            let lock = module.kernel_param_lock();
+            (*nr_devs.read(&lock)).try_into()?
+        };
+        pr_info!("Hello world, {} devices!\n", count);
+        let mut devs = Vec::try_with_capacity(count)?;
+        for i in 0..count {
+            let dev = Ref::try_new(Device {
+                number: i,
+                contents: Mutex::new(Vec::new()),
+            })?;
+            let reg = miscdev::Registration::new_pinned(fmt!("scull{i}"), dev)?;
+            devs.try_push(reg)?;
+        }
+        Ok(Self { _devs: devs })
     }
 }
