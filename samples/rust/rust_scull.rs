@@ -1,7 +1,7 @@
 //! Scull module in Rust.
 
 use kernel::prelude::*;
-use kernel::file;
+use kernel::{file, miscdev};
 
 module! {
     type: Scull,
@@ -9,7 +9,9 @@ module! {
     license: b"GPL",
 }
 
-struct Scull;
+struct Scull {
+    _dev: Pin<Box<miscdev::Registration<Scull>>>,
+}
 
 #[vtable]
 impl file::Operations for Scull {
@@ -22,6 +24,7 @@ impl file::Operations for Scull {
 impl kernel::Module for Scull {
     fn init(_name: &'static CStr, _module: &'static ThisModule) -> Result<Self> {
         pr_info!("Hello world!\n");
-        Ok(Self)
+        let reg = miscdev::Registration::new_pinned(fmt!("scull"), ())?;
+        Ok(Self { _dev: reg })
     }
 }
