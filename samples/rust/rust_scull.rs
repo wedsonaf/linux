@@ -9,6 +9,13 @@ module! {
     type: Scull,
     name: b"scull",
     license: b"GPL",
+    params: {
+        nr_devs: u32 {
+            default: 1,
+            permissions: 0o644,
+            description: b"Number of scull devices",
+        },
+    },
 }
 
 struct Device {
@@ -67,8 +74,9 @@ impl file::Operations for Scull {
 }
 
 impl kernel::Module for Scull {
-    fn init(_name: &'static CStr, _module: &'static ThisModule) -> Result<Self> {
-        pr_info!("Hello world!\n");
+    fn init(_name: &'static CStr, module: &'static ThisModule) -> Result<Self> {
+        let lock = module.kernel_param_lock();
+        pr_info!("Hello world, {} devices!\n", nr_devs.read(&lock));
         let dev = Ref::try_new(Device {
             number: 0,
             contents: Mutex::new(Vec::new()),
