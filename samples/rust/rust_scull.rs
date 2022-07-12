@@ -2,7 +2,7 @@
 
 use kernel::io_buffer::{IoBufferReader, IoBufferWriter};
 use kernel::prelude::*;
-use kernel::sync::{Ref, RefBorrow};
+use kernel::sync::{smutex::Mutex, Ref, RefBorrow};
 use kernel::{file, miscdev};
 
 module! {
@@ -13,7 +13,7 @@ module! {
 
 struct Device {
     number: usize,
-    contents: Vec<u8>,
+    contents: Mutex<Vec<u8>>,
 }
 
 struct Scull {
@@ -48,8 +48,9 @@ impl file::Operations for Scull {
     ) -> Result<usize> {
         pr_info!("File for device {} was written\n", data.number);
         let copy = reader.read_all()?;
-        data.contents = copy;
-        Ok(copy.len())
+        let len = copy.len();
+        *data.contents.lock() = copy;
+        Ok(len)
     }
 }
 
@@ -58,7 +59,7 @@ impl kernel::Module for Scull {
         pr_info!("Hello world!\n");
         let dev = Ref::try_new(Device {
             number: 0,
-            contents: Vec::new(),
+            contents: Mutex::new(Vec::new()),
         })?;
         let reg = miscdev::Registration::new_pinned(fmt!("scull"), dev)?;
         Ok(Self { _dev: reg })
