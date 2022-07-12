@@ -13,6 +13,7 @@ module! {
 
 struct Device {
     number: usize,
+    contents: Vec<u8>,
 }
 
 struct Scull {
@@ -46,14 +47,19 @@ impl file::Operations for Scull {
         _offset: u64,
     ) -> Result<usize> {
         pr_info!("File for device {} was written\n", data.number);
-        Ok(reader.len())
+        let copy = reader.read_all()?;
+        data.contents = copy;
+        Ok(copy.len())
     }
 }
 
 impl kernel::Module for Scull {
     fn init(_name: &'static CStr, _module: &'static ThisModule) -> Result<Self> {
         pr_info!("Hello world!\n");
-        let dev = Ref::try_new(Device { number: 0 })?;
+        let dev = Ref::try_new(Device {
+            number: 0,
+            contents: Vec::new(),
+        })?;
         let reg = miscdev::Registration::new_pinned(fmt!("scull"), dev)?;
         Ok(Self { _dev: reg })
     }
