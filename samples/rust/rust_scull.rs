@@ -25,8 +25,11 @@ impl file::Operations for Scull {
     type OpenData = Ref<Device>;
     type Data = Ref<Device>;
 
-    fn open(context: &Ref<Device>, _file: &file::File) -> Result<Ref<Device>> {
+    fn open(context: &Ref<Device>, file: &file::File) -> Result<Ref<Device>> {
         pr_info!("File for device {} was opened\n", context.number);
+        if file.flags() & file::flags::O_ACCMODE == file::flags::O_WRONLY {
+            context.contents.lock().clear();
+        }
         Ok(context.clone())
     }
 
@@ -48,12 +51,17 @@ impl file::Operations for Scull {
         data: RefBorrow<'_, Device>,
         _file: &file::File,
         reader: &mut impl IoBufferReader,
-        _offset: u64,
+        offset: u64,
     ) -> Result<usize> {
         pr_info!("File for device {} was written\n", data.number);
-        let copy = reader.read_all()?;
-        let len = copy.len();
-        *data.contents.lock() = copy;
+        let offset = offset.try_into()?;
+        let len = reader.len();
+        let new_len = len.checked_add(offset).ok_or(EINVAL)?;
+        let mut vec = data.contents.lock();
+        if new_len > vec.len() {
+            vec.try_resize(new_len, 0)?;
+        }
+        reader.read_slice(&mut vec[offset..][..len])?;
         Ok(len)
     }
 }
