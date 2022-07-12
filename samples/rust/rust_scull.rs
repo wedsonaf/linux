@@ -1,5 +1,6 @@
 //! Scull module in Rust.
 
+use kernel::io_buffer::IoBufferWriter;
 use kernel::prelude::*;
 use kernel::{file, miscdev};
 
@@ -18,6 +19,16 @@ impl file::Operations for Scull {
     fn open(_context: &(), _file: &file::File) -> Result {
         pr_info!("File was opened\n");
         Ok(())
+    }
+
+    fn read(
+        _data: (),
+        _file: &file::File,
+        _writer: &mut impl IoBufferWriter,
+        _offset: u64,
+    ) -> Result<usize> {
+        pr_info!("File was read\n");
+        Ok(0)
     }
 }
 
