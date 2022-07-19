@@ -55,3 +55,6 @@ pub const __GFP_ZERO: gfp_t = BINDINGS___GFP_ZERO;
 pub const __GFP_HIGHMEM: gfp_t = ___GFP_HIGHMEM;
 
 pub const MAX_LFS_FILESIZE: loff_t = BINDINGS_MAX_LFS_FILESIZE;
+
+pub const SLAB_RECLAIM_ACCOUNT: slab_flags_t = BINDINGS_SLAB_RECLAIM_ACCOUNT;
+pub const SLAB_MEM_SPREAD: slab_flags_t = BINDINGS_SLAB_MEM_SPREAD;

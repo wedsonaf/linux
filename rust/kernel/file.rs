@@ -9,6 +9,7 @@ use crate::{
     bindings,
     cred::Credential,
     error::{code::*, from_kernel_result, Error, Result},
+    fs,
     io_buffer::{IoBufferReader, IoBufferWriter},
     iov_iter::IovIter,
     mm,
@@ -162,6 +163,26 @@ impl File {
     pub fn flags(&self) -> u32 {
         // SAFETY: The file is valid because the shared reference guarantees a nonzero refcount.
         unsafe { core::ptr::addr_of!((*self.0.get()).f_flags).read() }
+    }
+
+    /// Returns the inode associated with the file.
+    ///
+    /// It returns `None` is the type of the inode is not `T`.
+    pub fn inode<T: fs::Type + ?Sized>(&self) -> Option<&fs::INode<T>> {
+        // SAFETY: The file is valid because the shared reference guarantees a nonzero refcount.
+        let inode = unsafe { core::ptr::addr_of!((*self.0.get()).f_inode).read() };
+
+        // SAFETY: The inode and superblock are valid because the file as a reference to them.
+        let sb_ops = unsafe { (*(*inode).i_sb).s_op };
+
+        if sb_ops == &fs::Tables::<T>::SUPER_BLOCK {
+            // SAFETY: We checked that the super-block operations table is the one produced for
+            // `T`, so it's safe to cast the inode. Additionally, the lifetime of the returned
+            // inode is bound to the file object.
+            Some(unsafe { &*inode.cast() })
+        } else {
+            None
+        }
     }
 }
 
@@ -874,4 +895,19 @@ pub trait Operations {
     ) -> Result<u32> {
         Ok(bindings::POLLIN | bindings::POLLOUT | bindings::POLLRDNORM | bindings::POLLWRNORM)
     }
+}
+
+/// Writes the contents of a slice into a buffer writer.
+///
+/// This is used to help implement [`Operations::read`] when the contents are stored in a slice. It
+/// takes into account the offset and lengths, and returns the amount of data written.
+pub fn read_from_slice(s: &[u8], writer: &mut impl IoBufferWriter, offset: u64) -> Result<usize> {
+    let offset = offset.try_into()?;
+    if offset >= s.len() {
+        return Ok(0);
+    }
+
+    let len = core::cmp::min(s.len() - offset, writer.len());
+    writer.write_slice(&s[offset..][..len])?;
+    Ok(len)
 }
