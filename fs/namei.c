@@ -2512,7 +2512,7 @@ static int path_lookupat(struct nameidata *nd, unsigned flags, struct path *path
 }
 
 int filename_lookup(int dfd, struct filename *name, unsigned flags,
-		    struct path *path, struct path *root)
+		    struct path *path, const struct path *root)
 {
 	int retval;
 	struct nameidata nd;
@@ -2618,24 +2618,21 @@ int kern_path(const char *name, unsigned int flags, struct path *path)
 EXPORT_SYMBOL(kern_path);
 
 /**
- * vfs_path_lookup - lookup a file path relative to a dentry-vfsmount pair
- * @dentry:  pointer to dentry of the base directory
- * @mnt: pointer to vfs mount of the base directory
+ * vfs_path_lookup - lookup a file path relative to another file path.
+ * @root: pointer to struct path of the base directory
  * @name: pointer to file name
  * @flags: lookup flags
  * @path: pointer to struct path to fill
  */
-int vfs_path_lookup(struct dentry *dentry, struct vfsmount *mnt,
-		    const char *name, unsigned int flags,
-		    struct path *path)
+int vfs_path_lookup(const struct path *root, const char *name,
+		    unsigned int flags, struct path *path)
 {
 	struct filename *filename;
-	struct path root = {.mnt = mnt, .dentry = dentry};
 	int ret;
 
 	filename = getname_kernel(name);
 	/* the first argument of filename_lookup() is ignored with root */
-	ret = filename_lookup(AT_FDCWD, filename, flags, path, &root);
+	ret = filename_lookup(AT_FDCWD, filename, flags, path, root);
 	putname(filename);
 	return ret;
 }

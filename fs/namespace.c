@@ -3546,8 +3546,8 @@ struct dentry *mount_subtree(struct vfsmount *m, const char *name)
 	ns->mounts++;
 	list_add(&mnt->mnt_list, &ns->list);
 
-	err = vfs_path_lookup(m->mnt_root, m,
-			name, LOOKUP_FOLLOW|LOOKUP_AUTOMOUNT, &path);
+	err = vfs_path_lookup_mnt(m, name, LOOKUP_FOLLOW|LOOKUP_AUTOMOUNT,
+			&path);
 
 	put_mnt_ns(ns);
 
@@ -4658,8 +4658,7 @@ static int mntns_install(struct nsset *nsset, struct ns_common *ns)
 	nsproxy->mnt_ns = mnt_ns;
 
 	/* Find the root */
-	err = vfs_path_lookup(mnt_ns->root->mnt.mnt_root, &mnt_ns->root->mnt,
-				"/", LOOKUP_DOWN, &root);
+	err = vfs_path_lookup_mnt(&mnt_ns->root->mnt, "/", LOOKUP_DOWN, &root);
 	if (err) {
 		/* revert to old namespace */
 		nsproxy->mnt_ns = old_mnt_ns;

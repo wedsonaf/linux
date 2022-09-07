@@ -57,9 +57,16 @@ extern int finish_clean_context(struct fs_context *fc);
  * namei.c
  */
 extern int filename_lookup(int dfd, struct filename *name, unsigned flags,
-			   struct path *path, struct path *root);
-extern int vfs_path_lookup(struct dentry *, struct vfsmount *,
-			   const char *, unsigned int, struct path *);
+			   struct path *path, const struct path *root);
+extern int vfs_path_lookup(const struct path *root, const char *, unsigned int,
+			   struct path *);
+static inline int vfs_path_lookup_mnt(struct vfsmount *mnt,
+				      const char *name, unsigned int flags,
+				      struct path *path)
+{
+	struct path root = {.mnt = mnt, .dentry = mnt->mnt_root};
+	return vfs_path_lookup(&root, name, flags, path);
+}
 int do_rmdir(int dfd, struct filename *name);
 int do_unlinkat(int dfd, struct filename *name);
 int may_linkat(struct user_namespace *mnt_userns, struct path *link);

@@ -1208,11 +1208,7 @@ int ksmbd_vfs_kern_path(struct ksmbd_work *work, char *name,
 	int err;
 
 	flags |= LOOKUP_BENEATH;
-	err = vfs_path_lookup(share_conf->vfs_path.dentry,
-			      share_conf->vfs_path.mnt,
-			      name,
-			      flags,
-			      path);
+	err = vfs_path_lookup(share_conf, name, flags, path);
 	if (!err)
 		return 0;
 
@@ -1248,8 +1244,7 @@ int ksmbd_vfs_kern_path(struct ksmbd_work *work, char *name,
 
 			next[0] = '\0';
 
-			err = vfs_path_lookup(share_conf->vfs_path.dentry,
-					      share_conf->vfs_path.mnt,
+			err = vfs_path_lookup(share_conf,
 					      filepath,
 					      flags,
 					      &parent);
