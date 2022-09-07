@@ -219,10 +219,10 @@ getname(const char __user * filename)
 }
 
 struct filename *
-getname_kernel(const char * filename)
+getname_kernel_len(const char * filename, size_t filename_len)
 {
 	struct filename *result;
-	int len = strlen(filename) + 1;
+	int len = filename_len + 1;
 
 	result = __getname();
 	if (unlikely(!result))
@@ -252,6 +252,12 @@ getname_kernel(const char * filename)
 	audit_getname(result);
 
 	return result;
+}
+
+struct filename *
+getname_kernel(const char * filename)
+{
+	return getname_kernel_len(filename, strlen(filename));
 }
 
 void putname(struct filename *name)
@@ -2621,20 +2627,28 @@ EXPORT_SYMBOL(kern_path);
  * vfs_path_lookup - lookup a file path relative to another file path.
  * @root: pointer to struct path of the base directory
  * @name: pointer to file name
+ * @namelen: length of the file name
  * @flags: lookup flags
  * @path: pointer to struct path to fill
  */
-int vfs_path_lookup(const struct path *root, const char *name,
-		    unsigned int flags, struct path *path)
+int vfs_path_lookup_len(const struct path *root, const char *name,
+			size_t namelen, unsigned int flags, struct path *path)
 {
 	struct filename *filename;
 	int ret;
 
-	filename = getname_kernel(name);
+	filename = getname_kernel_len(name, namelen);
 	/* the first argument of filename_lookup() is ignored with root */
 	ret = filename_lookup(AT_FDCWD, filename, flags, path, root);
 	putname(filename);
 	return ret;
+}
+EXPORT_SYMBOL(vfs_path_lookup_len);
+
+int vfs_path_lookup(const struct path *root, const char *name,
+		    unsigned int flags, struct path *path)
+{
+	return vfs_path_lookup_len(root, name, strlen(name), flags, path);
 }
 EXPORT_SYMBOL(vfs_path_lookup);
 

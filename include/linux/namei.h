@@ -76,6 +76,9 @@ struct dentry *lookup_one_positive_unlocked(struct user_namespace *mnt_userns,
 					    const char *name,
 					    struct dentry *base, int len);
 
+int vfs_path_lookup_len(const struct path *root, const char *name,
+			size_t namelen, unsigned int flags, struct path *path);
+
 extern int follow_down_one(struct path *);
 extern int follow_down(struct path *);
 extern int follow_up(struct path *);
