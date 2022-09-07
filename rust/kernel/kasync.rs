@@ -9,6 +9,7 @@ use core::{
 };
 
 pub mod executor;
+pub mod mutex;
 #[cfg(CONFIG_NET)]
 pub mod net;
 

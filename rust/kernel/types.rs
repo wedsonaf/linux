@@ -641,6 +641,12 @@ pub struct ARef<T: AlwaysRefCounted> {
     _p: PhantomData<T>,
 }
 
+// TODO: Annotate and add restrictions.
+unsafe impl<T: AlwaysRefCounted> Send for ARef<T> {}
+
+// TODO: Annotate and add restrictions.
+unsafe impl<T: AlwaysRefCounted> Sync for ARef<T> {}
+
 impl<T: AlwaysRefCounted> ARef<T> {
     /// Creates a new instance of [`ARef`].
     ///

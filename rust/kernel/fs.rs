@@ -5,8 +5,9 @@
 //! C headers: [`include/linux/fs.h`](../../../../include/linux/fs.h)
 
 use crate::{
-    bindings, error::code::*, error::from_kernel_result, str::CStr, to_result,
-    types::PointerWrapper, AlwaysRefCounted, Error, Result, ScopeGuard, ThisModule,
+    bindings, error::code::*, error::from_kernel_err_ptr, error::from_kernel_result, file,
+    str::CStr, to_result, types::PointerWrapper, ARef, AlwaysRefCounted, Error, Result, ScopeGuard,
+    ThisModule,
 };
 use alloc::boxed::Box;
 use core::{
@@ -716,6 +717,39 @@ pub struct SuperBlock<T: Type + ?Sized>(
 #[repr(transparent)]
 pub struct INode(pub(crate) UnsafeCell<bindings::inode>);
 
+// TODO: Annotate.
+unsafe impl Sync for INode {}
+
+impl INode {
+    /// Returns inode number (i_ino).
+    pub fn number(&self) -> u64 {
+        // SAFETY: The inode is valid because the shared reference guarantees a nonzero refcount.
+        unsafe { core::ptr::addr_of!((*self.0.get()).i_ino).read() }
+    }
+
+    /// Returns the inode kind.
+    ///
+    /// The value is one of the constants in [`inode_kind`].
+    pub fn kind(&self) -> u16 {
+        // SAFETY: The inode is valid because the shared reference guarantees a nonzero refcount.
+        let mode = unsafe { core::ptr::addr_of!((*self.0.get()).i_mode).read() };
+        mode & (bindings::S_IFMT as u16)
+    }
+
+    /// Returns the access permissions of the inode.
+    pub fn access_permissions(&self) -> u16 {
+        // SAFETY: The inode is valid because the shared reference guarantees a nonzero refcount.
+        let mode = unsafe { core::ptr::addr_of!((*self.0.get()).i_mode).read() };
+        mode & 0o777
+    }
+
+    /// Returns the size of the inode data.
+    pub fn size(&self) -> u64 {
+        // SAFETY: The inode is valid because the shared reference guarantees a nonzero refcount.
+        unsafe { core::ptr::addr_of!((*self.0.get()).i_size).read() as _ }
+    }
+}
+
 // SAFETY: The type invariants guarantee that `INode` is always ref-counted.
 unsafe impl AlwaysRefCounted for INode {
     fn inc_ref(&self) {
@@ -729,6 +763,30 @@ unsafe impl AlwaysRefCounted for INode {
     }
 }
 
+/// The kind of filesystem entry an inode represents.
+pub mod inode_kind {
+    /// A symbolic link.
+    pub const LNK: u16 = bindings::S_IFLNK as _;
+
+    /// A regular file.
+    pub const REG: u16 = bindings::S_IFREG as _;
+
+    /// A directory.
+    pub const DIR: u16 = bindings::S_IFDIR as _;
+
+    /// A character device.
+    pub const CHR: u16 = bindings::S_IFCHR as _;
+
+    /// A block device.
+    pub const BLK: u16 = bindings::S_IFBLK as _;
+
+    /// A pipe (FIFO, first-in first-out).
+    pub const FIFO: u16 = bindings::S_IFIFO as _;
+
+    /// A unix-domain socket.
+    pub const SOCK: u16 = bindings::S_IFSOCK as _;
+}
+
 /// Wraps the kernel's `struct dentry`.
 ///
 /// # Invariants
@@ -737,6 +795,124 @@ unsafe impl AlwaysRefCounted for INode {
 /// allocation remains valid at least until the matching call to `dput`.
 #[repr(transparent)]
 pub struct DEntry(pub(crate) UnsafeCell<bindings::dentry>);
+
+// TODO: Annotate.
+unsafe impl Sync for DEntry {}
+
+impl DEntry {
+    pub fn lock(&self) -> DEntryGuard<'_> {
+        DEntryGuard::new(self)
+    }
+
+    pub fn inode(&self) -> Option<&INode> {
+        // SAFETY: The dentry is valid because the shared reference guarantees a nonzero refcount.
+        let ptr = unsafe { core::ptr::addr_of!((*self.0.get()).d_inode).read() };
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { &*ptr.cast() })
+        }
+    }
+
+    pub fn get_link(&self) -> Result<Buffer> {
+        let mut done = bindings::delayed_call::default();
+        let ptr = from_kernel_err_ptr(unsafe {
+            bindings::vfs_get_link(self.0.get(), &mut done) as *mut i8
+        })?;
+        if ptr.is_null() {
+            return Err(EINVAL);
+        }
+        let len = unsafe { bindings::strlen(ptr) };
+        Ok(Buffer {
+            ptr: ptr.cast(),
+            len: len as usize,
+            done,
+        })
+    }
+}
+
+pub struct Buffer {
+    ptr: *const u8,
+    len: usize,
+    done: bindings::delayed_call,
+}
+
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        unsafe { bindings::do_delayed_call(&mut self.done) };
+    }
+}
+
+impl core::ops::Deref for Buffer {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        // TODO: Annotate.
+        unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+
+pub struct DEntryGuard<'a> {
+    dentry: &'a DEntry,
+}
+
+impl<'a> DEntryGuard<'a> {
+    fn new(dentry: &'a DEntry) -> Self {
+        // TODO: Annotate.
+        unsafe {
+            bindings::spin_lock(ptr::addr_of_mut!(
+                (*dentry.0.get())
+                    .d_lockref
+                    .__bindgen_anon_1
+                    .__bindgen_anon_1
+                    .lock
+            ))
+        };
+        Self { dentry }
+    }
+
+    /// Returns the name of the dentry.
+    pub fn name(&self) -> &[u8] {
+        // SAFETY: The dentry is valid because the shared reference guarantees a nonzero refcount.
+        let ptr = unsafe { (*self.dentry.0.get()).d_name.name };
+
+        // SAFETY: The dentry is valid because the shared reference guarantees a nonzero refcount.
+        let len = unsafe {
+            (*self.dentry.0.get())
+                .d_name
+                .__bindgen_anon_1
+                .__bindgen_anon_1
+                .len
+        };
+
+        // SAFETY: The name doesn't change over while the dentry is locked, so it's ok to use the
+        // pointer and length retrieved above.
+        unsafe { core::slice::from_raw_parts(ptr.cast(), len as usize) }
+    }
+}
+
+impl core::ops::Deref for DEntryGuard<'_> {
+    type Target = DEntry;
+
+    fn deref(&self) -> &Self::Target {
+        self.dentry
+    }
+}
+
+impl Drop for DEntryGuard<'_> {
+    fn drop(&mut self) {
+        // TODO: Annotate.
+        unsafe {
+            bindings::spin_unlock(ptr::addr_of_mut!(
+                (*self.dentry.0.get())
+                    .d_lockref
+                    .__bindgen_anon_1
+                    .__bindgen_anon_1
+                    .lock
+            ))
+        };
+    }
+}
 
 // SAFETY: The type invariants guarantee that `DEntry` is always ref-counted.
 unsafe impl AlwaysRefCounted for DEntry {
@@ -748,6 +924,98 @@ unsafe impl AlwaysRefCounted for DEntry {
     unsafe fn dec_ref(obj: ptr::NonNull<Self>) {
         // SAFETY: The safety requirements guarantee that the refcount is nonzero.
         unsafe { bindings::dput(obj.cast().as_ptr()) }
+    }
+}
+
+/// Flags used in [`Path::lookup`].
+pub mod lookup {
+    /// No symlink crossing.
+    pub const LOOKUP_NO_SYMLINKS: u32 = bindings::LOOKUP_NO_SYMLINKS;
+
+    /// No nd_jump_link() crossing.
+    pub const LOOKUP_NO_MAGICLINKS: u32 = bindings::LOOKUP_NO_MAGICLINKS;
+
+    /// No mountpoint crossing.
+    pub const LOOKUP_NO_XDEV: u32 = bindings::LOOKUP_NO_XDEV;
+
+    /// No escaping from starting point.
+    pub const LOOKUP_BENEATH: u32 = bindings::LOOKUP_BENEATH;
+
+    /// Treat dirfd as fs root.
+    pub const LOOKUP_IN_ROOT: u32 = bindings::LOOKUP_IN_ROOT;
+
+    /// Only do cached lookup.
+    pub const LOOKUP_CACHED: u32 = bindings::LOOKUP_CACHED;
+
+    /// LOOKUP_* flags which do scope-related checks based on the dirfd.
+    pub const LOOKUP_IS_SCOPED: u32 = bindings::LOOKUP_IS_SCOPED;
+}
+
+/// Wraps the kernel's `struct path`.
+#[repr(transparent)]
+pub struct Path(pub(crate) bindings::path);
+
+impl Path {
+    /// Looks up another path relative to `self`.
+    ///
+    /// The flags are a combination of the constants in the [`lookup`] module.
+    pub fn lookup(&self, name: &[u8], flags: u32) -> Result<Self> {
+        // TODO: Use MaybeUninit.
+        let mut result = bindings::path::default();
+
+        // TODO: Annotate.
+        to_result(unsafe {
+            bindings::vfs_path_lookup_len(
+                &self.0,
+                name.as_ptr().cast(),
+                name.len(),
+                flags,
+                &mut result,
+            )
+        })?;
+        Ok(Path(result))
+    }
+
+    pub fn open(&self, flags: u32, cred: &crate::cred::Credential) -> Result<ARef<file::File>> {
+        let f = crate::error::from_kernel_err_ptr(unsafe {
+            bindings::dentry_open(&self.0, flags as _, cred.0.get())
+        })?;
+        let ptr = ptr::NonNull::new(f).ok_or(ENOMEM)?;
+
+        // SAFETY: `filp_open` returns a referenced file.
+        Ok(unsafe { ARef::from_raw(ptr.cast()) })
+    }
+
+    /// Returns the dentry associated with the path.
+    pub fn dentry(&self) -> &DEntry {
+        // TODO: Annotate.
+        unsafe { &*self.0.dentry.cast() }
+    }
+
+    /// Determines if the two paths have the same mount point.
+    pub fn is_same_mnt(&self, p: &Path) -> bool {
+        self.0.mnt == p.0.mnt
+    }
+}
+
+impl PartialEq for Path {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.mnt == other.0.mnt && self.0.dentry == other.0.dentry
+    }
+}
+
+impl Clone for Path {
+    fn clone(&self) -> Self {
+        // TODO: Annotate.
+        unsafe { bindings::path_get(&self.0) }
+        Self(self.0)
+    }
+}
+
+impl Drop for Path {
+    fn drop(&mut self) {
+        // TODO: Annotate.
+        unsafe { bindings::path_put(&self.0) }
     }
 }
 

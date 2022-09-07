@@ -36,6 +36,7 @@ mod rwsem;
 mod seqlock;
 pub mod smutex;
 mod spinlock;
+pub mod sspinlock;
 
 pub use arc::{new_refcount, Ref, RefBorrow, StaticRef, UniqueRef};
 pub use condvar::CondVar;

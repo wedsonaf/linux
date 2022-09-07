@@ -6,12 +6,14 @@
 //! [`include/linux/file.h`](../../../../include/linux/file.h)
 
 use crate::{
-    bindings,
+    bindings, container_of,
     cred::Credential,
-    error::{code::*, from_kernel_result, Error, Result},
+    error::{code::*, from_kernel_err_ptr, from_kernel_result, to_result, Error, Result},
+    fs,
     io_buffer::{IoBufferReader, IoBufferWriter},
     iov_iter::IovIter,
     mm,
+    str::CStr,
     sync::CondVar,
     types::PointerWrapper,
     user_ptr::{UserSlicePtr, UserSlicePtrReader, UserSlicePtrWriter},
@@ -104,6 +106,19 @@ pub mod flags {
     pub const O_RDWR: u32 = bindings::O_RDWR;
 }
 
+/// Types of directory entries as returned by [`File::readdir`].
+pub mod dirent {
+    pub const DT_UNKNOWN: u32 = bindings::DT_UNKNOWN;
+    pub const DT_FIFO: u32 = bindings::DT_FIFO;
+    pub const DT_CHR: u32 = bindings::DT_CHR;
+    pub const DT_DIR: u32 = bindings::DT_DIR;
+    pub const DT_BLK: u32 = bindings::DT_BLK;
+    pub const DT_REG: u32 = bindings::DT_REG;
+    pub const DT_LNK: u32 = bindings::DT_LNK;
+    pub const DT_SOCK: u32 = bindings::DT_SOCK;
+    pub const DT_WHT: u32 = bindings::DT_WHT;
+}
+
 /// Wraps the kernel's `struct file`.
 ///
 /// # Invariants
@@ -113,10 +128,32 @@ pub mod flags {
 #[repr(transparent)]
 pub struct File(pub(crate) UnsafeCell<bindings::file>);
 
+// TODO: Annotate.
+unsafe impl Send for File {}
+// TODO: Annotate.
+unsafe impl Sync for File {}
+
 // TODO: Accessing fields of `struct file` through the pointer is UB because other threads may be
 // writing to them. However, this is how the C code currently operates: naked reads and writes to
 // fields. Even if we used relaxed atomics on the Rust side, we can't force this on the C side.
 impl File {
+    /// Opens an existing file.
+    ///
+    /// The flags are a combination of the constants in [`flags`].
+    pub fn open(name: &CStr, flags: u32) -> Result<ARef<Self>> {
+        // We don't support file creation yet because we don't handle mode (the third arg of
+        // `filp_open`).
+        if flags & flags::O_CREAT != 0 {
+            return Err(EINVAL);
+        }
+        let f =
+            from_kernel_err_ptr(unsafe { bindings::filp_open(name.as_char_ptr(), flags as _, 0) })?;
+        let ptr = ptr::NonNull::new(f).ok_or(ENOMEM)?;
+
+        // SAFETY: `filp_open` returns a referenced file.
+        Ok(unsafe { ARef::from_raw(ptr.cast()) })
+    }
+
     /// Constructs a new [`struct file`] wrapper from a file descriptor.
     ///
     /// The file descriptor belongs to the current process.
@@ -138,6 +175,89 @@ impl File {
         // SAFETY: The safety requirements guarantee the validity of the dereference, while the
         // `File` type being transparent makes the cast ok.
         unsafe { &*ptr.cast() }
+    }
+
+    /// Reads the contents of the file.
+    pub fn read(&self, out: &mut [u8], offset: u64) -> Result<u64> {
+        let mut out_offset = if let Ok(o) = offset.try_into() {
+            o
+        } else {
+            return Ok(0);
+        };
+        let ret = unsafe {
+            bindings::kernel_read(
+                self.0.get(),
+                out.as_mut_ptr().cast(),
+                out.len(),
+                &mut out_offset,
+            )
+        };
+        if ret < 0 {
+            return Err(Error::from_kernel_errno(ret.try_into()?));
+        }
+        Ok(ret as _)
+    }
+
+    /// Reads the entries of the directory.
+    ///
+    /// The last argument of the callback is the type of the entry, which is given by one of the
+    /// values in the [`dirent`] module.
+    pub fn readdir<T: FnMut(&[u8], u64, u64, u32) -> Result<bool>>(
+        &self,
+        index: u64,
+        cb: T,
+    ) -> Result {
+        struct Context<T> {
+            dir: bindings::dir_context,
+            cb: T,
+            res: Result,
+        }
+
+        let mut ctx = Context {
+            cb,
+            dir: bindings::dir_context {
+                actor: Some(dir_callback::<T>),
+                pos: if let Ok(i) = index.try_into() {
+                    i
+                } else {
+                    // If the index doesn't fit in a signed integer, succeed as if we had reach the
+                    // end of the enumeration.
+                    return Ok(());
+                },
+            },
+            res: Ok(()),
+        };
+
+        unsafe extern "C" fn dir_callback<T: FnMut(&[u8], u64, u64, u32) -> Result<bool>>(
+            ctx: *mut bindings::dir_context,
+            name: *const core::ffi::c_char,
+            namelen: core::ffi::c_int,
+            index: i64,
+            ino: u64,
+            type_: core::ffi::c_uint,
+        ) -> core::ffi::c_int {
+            if index < 0 {
+                // Skip negative indices.
+                return 0;
+            }
+
+            let fixed_namelen = core::cmp::max(0, namelen) as usize;
+            let name_slice = unsafe { core::slice::from_raw_parts(name as _, fixed_namelen) };
+
+            let c = unsafe { &mut *(container_of!(ctx, Context<T>, dir) as *mut Context<T>) };
+            match (c.cb)(name_slice, index as _, ino, type_) {
+                Ok(b) => !b as _,
+                Err(e) => {
+                    c.res = Err(e);
+                    1
+                }
+            }
+        }
+
+        // SAFETY: The file is valid because the shared reference guarantees a nonzero refcount.
+        // Additionally, the context is also valid for the duration of the call.
+        to_result(unsafe { bindings::iterate_dir(self.0.get(), &mut ctx.dir) })?;
+        ctx.res
     }
 
     /// Returns the current seek/cursor/pointer position (`struct file::f_pos`).
@@ -162,6 +282,29 @@ impl File {
     pub fn flags(&self) -> u32 {
         // SAFETY: The file is valid because the shared reference guarantees a nonzero refcount.
         unsafe { core::ptr::addr_of!((*self.0.get()).f_flags).read() }
+    }
+
+    /// Returns the inode that backs the file.
+    pub fn inode(&self) -> &fs::INode {
+        // SAFETY: The file is valid because the shared reference guarantees a nonzero refcount.
+        let ptr = unsafe { core::ptr::addr_of!((*self.0.get()).f_inode).read() };
+
+        // SAFETY: The file being alive keeps the inode alive.
+        unsafe { &*ptr.cast() }
+    }
+
+    /// Returns the dentry that backs the file.
+    pub fn dentry(&self) -> &fs::DEntry {
+        self.path().dentry()
+    }
+
+    /// Returns the path of the file.
+    pub fn path(&self) -> &fs::Path {
+        // SAFETY: The file is valid because the shared reference guarantees a nonzero refcount.
+        let ptr = unsafe { core::ptr::addr_of!((*self.0.get()).f_path) };
+
+        // SAFETY: The file being alive keeps the path alive.
+        unsafe { &*ptr.cast() }
     }
 }
 

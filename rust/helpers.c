@@ -192,6 +192,18 @@ void rust_helper_memcpy_fromio(void *to, const volatile void __iomem *from, long
 }
 EXPORT_SYMBOL_GPL(rust_helper_memcpy_fromio);
 
+void rust_helper_preempt_enable(void)
+{
+	preempt_enable();
+}
+EXPORT_SYMBOL_GPL(rust_helper_preempt_enable);
+
+void rust_helper_preempt_disable(void)
+{
+	preempt_disable();
+}
+EXPORT_SYMBOL_GPL(rust_helper_preempt_disable);
+
 void rust_helper___spin_lock_init(spinlock_t *lock, const char *name,
 				  struct lock_class_key *key)
 {
@@ -654,6 +666,12 @@ int rust_helper_fs_parse(struct fs_context *fc,
 	return fs_parse(fc, desc, param, result);
 }
 EXPORT_SYMBOL_GPL(rust_helper_fs_parse);
+
+void rust_helper_do_delayed_call(struct delayed_call *call)
+{
+	do_delayed_call(call);
+}
+EXPORT_SYMBOL_GPL(rust_helper_do_delayed_call);
 
 /*
  * We use `bindgen`'s `--size_t-is-usize` option to bind the C `size_t` type

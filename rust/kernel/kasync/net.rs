@@ -3,6 +3,7 @@
 //! Async networking.
 
 use crate::{bindings, error::code::*, net, sync::NoWaitLock, types::Opaque, Result};
+use alloc::boxed::Box;
 use core::{
     future::Future,
     marker::{PhantomData, PhantomPinned},
@@ -89,6 +90,39 @@ impl TcpStream {
             bindings::BINDINGS_EPOLLIN | bindings::BINDINGS_EPOLLHUP | bindings::BINDINGS_EPOLLERR,
             || self.stream.read(buf, false),
         )
+    }
+
+    /// Reads exactly `buf.len()` bytes from the connected socket.
+    ///
+    /// Returns a future that when ready indicates the result of the read operation; on success, it
+    /// has read all data.
+    pub async fn read_all<'a>(&'a self, buf: &'a mut [u8]) -> Result {
+        let mut rem = buf;
+
+        while !rem.is_empty() {
+            let n = self.read(rem).await?;
+            if n == 0 {
+                // TODO: Find better error code.
+                return Err(EIO);
+            }
+
+            rem = &mut rem[n..];
+        }
+
+        Ok(())
+    }
+
+    /// Allocates a buffer and reads exactly `len` bytes from the connected socket.
+    ///
+    /// Returns a future that when ready indicates the result of the read operation; on success, it
+    /// has allocated the buffer and read all data.
+    pub async fn alloc_read_exact(&self, len: usize) -> Result<Box<[u8]>> {
+        let buf = Box::<[u8]>::try_new_uninit_slice(len)?;
+        // SAFETY: All `u8` values are valid, so it's ok to convert from uninit to init. In any
+        // case, the buffer will be dropped if we cannot read the whole buffer from the socket.
+        let mut buf = unsafe { Box::<[u8]>::from_raw(Box::into_raw(buf) as _) };
+        self.read_all(&mut *buf).await?;
+        Ok(buf)
     }
 
     /// Writes data to the connected socket.

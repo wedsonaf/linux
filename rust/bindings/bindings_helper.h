@@ -14,6 +14,7 @@
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/fs_parser.h>
+#include <linux/namei.h>
 #include <linux/gpio/driver.h>
 #include <linux/hw_random.h>
 #include <linux/interrupt.h>

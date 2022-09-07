@@ -244,7 +244,7 @@ impl super::Executor for Executor {
         self: RefBorrow<'_, Self>,
         key: &'static LockClassKey,
         future: impl Future + 'static + Send,
-    ) -> Result<Ref<dyn super::Task>> {
+    ) -> Result<Ref<dyn super::Task + Send + Sync>> {
         let task = Task::try_new(self.into(), key, future)?;
         task.clone().wake();
         Ok(task)

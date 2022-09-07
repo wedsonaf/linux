@@ -49,7 +49,7 @@ pub trait Executor: Sync + Send {
         self: RefBorrow<'_, Self>,
         lock_class_key: &'static LockClassKey,
         future: impl Future + 'static + Send,
-    ) -> Result<Ref<dyn Task>>
+    ) -> Result<Ref<dyn Task + Send + Sync>>
     where
         Self: Sized;
 
