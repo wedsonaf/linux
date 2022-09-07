@@ -374,6 +374,7 @@ source "fs/ceph/Kconfig"
 
 source "fs/cifs/Kconfig"
 source "fs/ksmbd/Kconfig"
+source "fs/k9pd/Kconfig"
 
 config SMBFS_COMMON
 	tristate

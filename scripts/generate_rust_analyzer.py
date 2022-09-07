@@ -98,7 +98,7 @@ def generate_crates(srctree, objtree, sysroot_src):
     # Then, the rest outside of `rust/`.
     #
     # We explicitly mention the top-level folders we want to cover.
-    for folder in ("samples", "drivers"):
+    for folder in ("samples", "drivers", "fs"):
         for path in (srctree / folder).rglob("*.rs"):
             logging.info("Checking %s", path)
             name = path.name.replace(".rs", "")

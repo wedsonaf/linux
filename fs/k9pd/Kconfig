@@ -1,0 +1,10 @@
+config 9P_SERVER
+	tristate "9P server support (EXPERIMENTAL)"
+	depends on INET
+	depends on RUST
+	default n
+	help
+	  Choose Y here if you want to allow 9P compliant clients
+	  to access files residing on this system using the 9P protocol.
+	  To compile the 9P server support as a module,
+	  choose M here: the module will be called k9pd.
