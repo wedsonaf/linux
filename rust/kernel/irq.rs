@@ -10,7 +10,7 @@
 #![allow(dead_code)]
 
 use crate::{
-    bindings,
+    bindings, context,
     error::{from_kernel_result, to_result},
     str::CString,
     types::PointerWrapper,
@@ -375,7 +375,10 @@ pub trait Handler {
     type Data: PointerWrapper;
 
     /// Called from interrupt context when the irq happens.
-    fn handle_irq(data: <Self::Data as PointerWrapper>::Borrowed<'_>) -> Return;
+    fn handle_irq(
+        cx: &mut impl context::RawAtomic,
+        data: <Self::Data as PointerWrapper>::Borrowed<'_>,
+    ) -> Return;
 }
 
 /// The registration of an interrupt handler.
@@ -386,14 +389,14 @@ pub trait Handler {
 ///
 /// ```
 /// # use kernel::prelude::*;
-/// use kernel::irq;
+/// use kernel::{context, irq};
 ///
 /// struct Example;
 ///
 /// impl irq::Handler for Example {
 ///     type Data = Box<u32>;
 ///
-///     fn handle_irq(_data: &u32) -> irq::Return {
+///     fn handle_irq(_cx: &mut impl context::RawAtomic, _data: &u32) -> irq::Return {
 ///         irq::Return::None
 ///     }
 /// }
@@ -427,7 +430,7 @@ impl<H: Handler> Registration<H> {
         // SAFETY: On registration, `into_pointer` was called, so it is safe to borrow from it here
         // because `from_pointer` is called only after the irq is unregistered.
         let data = unsafe { H::Data::borrow(raw_data) };
-        H::handle_irq(data) as _
+        H::handle_irq(&mut context::raw_atomic(), data) as _
     }
 }
 
@@ -437,12 +440,18 @@ pub trait ThreadedHandler {
     type Data: PointerWrapper;
 
     /// Called from interrupt context when the irq first happens.
-    fn handle_primary_irq(_data: <Self::Data as PointerWrapper>::Borrowed<'_>) -> Return {
+    fn handle_primary_irq(
+        _cx: &mut impl context::RawAtomic,
+        _data: <Self::Data as PointerWrapper>::Borrowed<'_>,
+    ) -> Return {
         Return::WakeThread
     }
 
     /// Called from the handler thread.
-    fn handle_threaded_irq(data: <Self::Data as PointerWrapper>::Borrowed<'_>) -> Return;
+    fn handle_threaded_irq(
+        cx: &mut impl context::Sleepable,
+        data: <Self::Data as PointerWrapper>::Borrowed<'_>,
+    ) -> Return;
 }
 
 /// The registration of a threaded interrupt handler.
@@ -454,7 +463,7 @@ pub trait ThreadedHandler {
 /// ```
 /// # use kernel::prelude::*;
 /// use kernel::{
-///     irq,
+///     context, irq,
 ///     sync::{Ref, RefBorrow},
 /// };
 ///
@@ -463,7 +472,10 @@ pub trait ThreadedHandler {
 /// impl irq::ThreadedHandler for Example {
 ///     type Data = Ref<u32>;
 ///
-///     fn handle_threaded_irq(_data: RefBorrow<'_, u32>) -> irq::Return {
+///     fn handle_threaded_irq(
+///         cx: &mut impl context::Sleepable,
+///         data: RefBorrow<'_, u32>,
+///     ) -> irq::Return {
 ///         irq::Return::None
 ///     }
 /// }
@@ -505,7 +517,7 @@ impl<H: ThreadedHandler> ThreadedRegistration<H> {
         // SAFETY: On registration, `into_pointer` was called, so it is safe to borrow from it here
         // because `from_pointer` is called only after the irq is unregistered.
         let data = unsafe { H::Data::borrow(raw_data) };
-        H::handle_primary_irq(data) as _
+        H::handle_primary_irq(&mut context::raw_atomic(), data) as _
     }
 
     unsafe extern "C" fn threaded_handler(
@@ -515,7 +527,7 @@ impl<H: ThreadedHandler> ThreadedRegistration<H> {
         // SAFETY: On registration, `into_pointer` was called, so it is safe to borrow from it here
         // because `from_pointer` is called only after the irq is unregistered.
         let data = unsafe { H::Data::borrow(raw_data) };
-        H::handle_threaded_irq(data) as _
+        H::handle_threaded_irq(&mut context::sleepable(), data) as _
     }
 }
 

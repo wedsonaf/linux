@@ -15,7 +15,7 @@
 //!
 //! [`Arc`]: https://doc.rust-lang.org/std/sync/struct.Arc.html
 
-use crate::{bindings, error::code::*, Error, Opaque, Result};
+use crate::{bindings, context, error::code::*, Error, Opaque, Result};
 use alloc::{
     alloc::{alloc, dealloc},
     vec::Vec,
@@ -102,6 +102,11 @@ impl<T> Ref<T> {
     /// It can be reconstructed once via [`Ref::from_usize`].
     pub fn into_usize(obj: Self) -> usize {
         ManuallyDrop::new(obj).ptr.as_ptr() as _
+    }
+
+    /// Constructs a new reference counted instance of `T`.
+    pub fn try_new_with_context(_cx: &mut impl context::Sleepable, contents: T) -> Result<Self> {
+        Self::try_new(contents)
     }
 
     /// Borrows a [`Ref`] instance previously deconstructed via [`Ref::into_usize`].

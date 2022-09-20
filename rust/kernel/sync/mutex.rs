@@ -5,7 +5,7 @@
 //! This module allows Rust code to use the kernel's [`struct mutex`].
 
 use super::{Guard, Lock, LockClassKey, LockFactory, LockIniter, WriteLock};
-use crate::{bindings, str::CStr, Opaque};
+use crate::{bindings, context, str::CStr, Opaque};
 use core::{cell::UnsafeCell, marker::PhantomPinned, pin::Pin};
 
 /// Safely initialises a [`Mutex`] with the given name, generating a new lock class.
@@ -69,6 +69,15 @@ impl<T: ?Sized> Mutex<T> {
         let ctx = self.lock_noguard();
         // SAFETY: The mutex was just acquired.
         unsafe { Guard::new(self, ctx) }
+    }
+
+    /// Locks the mutex and gives the caller access to the data protected by it. Only one thread at
+    /// a time is allowed to access the protected data.
+    pub fn lock_with_context<'a, 'b: 'c, 'c: 'a, C: context::Sleepable>(
+        &'a self,
+        cx: &'b mut C,
+    ) -> (&'c mut C, Guard<'a, Self>) {
+        (cx, self.lock())
     }
 }
 

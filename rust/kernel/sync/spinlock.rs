@@ -10,7 +10,7 @@ use super::{
     mutex::EmptyGuardContext, Guard, Lock, LockClassKey, LockFactory, LockInfo, LockIniter,
     WriteLock,
 };
-use crate::{bindings, str::CStr, Opaque, True};
+use crate::{bindings, context, str::CStr, Opaque, True};
 use core::{cell::UnsafeCell, marker::PhantomPinned, pin::Pin};
 
 /// Safely initialises a [`SpinLock`] with the given name, generating a new lock class.
@@ -117,6 +117,15 @@ impl<T: ?Sized> SpinLock<T> {
         let ctx = <Self as Lock<WriteLock>>::lock_noguard(self);
         // SAFETY: The spinlock was just acquired.
         unsafe { Guard::new(self, ctx) }
+    }
+
+    /// Locks the spinlock and gives the caller access to the data protected by it. Only one thread
+    /// at a time is allowed to access the protected data.
+    pub fn lock_with_context<'a, 'b: 'c, 'c: 'a, C: context::AsAtomic>(
+        &'a self,
+        cx: &'b mut C,
+    ) -> (&'c mut C::Atomic, Guard<'a, Self, WriteLock>) {
+        (cx.as_atomic(), self.lock())
     }
 
     /// Locks the spinlock and gives the caller access to the data protected by it. Additionally it
@@ -283,6 +292,19 @@ impl<T: ?Sized> RawSpinLock<T> {
         let ctx = <Self as Lock<WriteLock>>::lock_noguard(self);
         // SAFETY: The raw spinlock was just acquired.
         unsafe { Guard::new(self, ctx) }
+    }
+
+    /// Locks the raw spinlock and gives the caller access to the data protected by it. Only one
+    /// thread at a time is allowed to access the protected data.
+    pub fn lock_with_context<'a, 'b, 'c, C: context::AsRawAtomic>(
+        &'a self,
+        cx: &'b mut C,
+    ) -> (&'c mut C::RawAtomic, Guard<'a, Self, WriteLock>)
+    where
+        'b: 'c,
+        'c: 'a,
+    {
+        (cx.as_raw_atomic(), self.lock())
     }
 
     /// Locks the raw spinlock and gives the caller access to the data protected by it.

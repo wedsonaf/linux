@@ -8,7 +8,6 @@
 use crate::{bindings, sync::rcu};
 use core::{
     cell::UnsafeCell,
-    marker::PhantomData,
     mem::MaybeUninit,
     ops::Deref,
     ptr::drop_in_place,
@@ -113,7 +112,7 @@ impl<T> Revocable<T> {
     /// remain accessible while the rcu read side guard is alive. In such cases, callers are not
     /// allowed to sleep because another CPU may be waiting to complete the revocation of this
     /// object.
-    pub fn try_access_with_guard<'a>(&'a self, _guard: &'a rcu::Guard) -> Option<&'a T> {
+    pub fn try_access_with_guard<'a, 'b>(&'a self, _guard: &'a rcu::Guard<'b>) -> Option<&'a T> {
         if self.is_available.load(Ordering::Relaxed) {
             // SAFETY: Since `self.is_available` is true, data is initialised and has to remain
             // valid because the RCU read side lock prevents it from being dropped.
@@ -168,16 +167,14 @@ impl<T> Drop for Revocable<T> {
 /// The RCU read-side lock is held while the guard is alive.
 pub struct RevocableGuard<'a, T> {
     data_ref: *const T,
-    _rcu_guard: rcu::Guard,
-    _p: PhantomData<&'a ()>,
+    _rcu_guard: rcu::Guard<'a>,
 }
 
-impl<T> RevocableGuard<'_, T> {
-    fn new(data_ref: *const T, rcu_guard: rcu::Guard) -> Self {
+impl<'a, T> RevocableGuard<'a, T> {
+    fn new(data_ref: *const T, rcu_guard: rcu::Guard<'a>) -> Self {
         Self {
             data_ref,
             _rcu_guard: rcu_guard,
-            _p: PhantomData,
         }
     }
 }
