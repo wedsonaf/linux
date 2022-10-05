@@ -27,6 +27,7 @@ pub mod error;
 pub mod prelude;
 pub mod print;
 pub mod str;
+pub mod sync;
 pub mod util;
 
 #[doc(hidden)]
