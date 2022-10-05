@@ -4,7 +4,7 @@
 //!
 //! C header: [`include/uapi/asm-generic/errno-base.h`](../../../include/uapi/asm-generic/errno-base.h)
 
-use alloc::collections::TryReserveError;
+use alloc::{alloc::AllocError, collections::TryReserveError};
 
 /// Contains the C-compatible error codes.
 pub mod code {
@@ -57,3 +57,9 @@ impl From<TryReserveError> for Error {
 /// it should still be modeled as returning a `Result` rather than
 /// just an [`Error`].
 pub type Result<T = ()> = core::result::Result<T, Error>;
+
+impl From<AllocError> for Error {
+    fn from(_: AllocError) -> Error {
+        code::ENOMEM
+    }
+}
