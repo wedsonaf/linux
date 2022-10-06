@@ -110,6 +110,31 @@ pub struct Arc<T: ?Sized> {
     _p: PhantomData<ArcInner<T>>,
 }
 
+/*
+mod example {
+    use crate::prelude::*;
+    use crate::sync::{Arc, ArcBorrow};
+
+    trait MyTrait {
+        fn test1(self: Arc<Self>);
+        fn test2(self: ArcBorrow<'_, Self>);
+    }
+
+    struct Example;
+    impl MyTrait for Example {
+        fn test1(self: Arc<Self>) {}
+        fn test2(self: ArcBorrow<'_, Self>) {}
+    }
+
+    fn example() -> Result {
+        let obj: Arc<dyn MyTrait> = Arc::try_new(Example)?;
+        obj.as_arc_borrow().test2();
+        obj.test1();
+        Ok(())
+    }
+}
+*/
+
 #[repr(C)]
 struct ArcInner<T: ?Sized> {
     refcount: Opaque<bindings::refcount_t>,
@@ -122,6 +147,9 @@ impl<T: ?Sized> core::ops::Receiver for Arc<T> {}
 // This is to allow coercion from `Arc<T>` to `Arc<U>` if `T` can be converted to the
 // dynamically-sized type (DST) `U`.
 impl<T: ?Sized + Unsize<U>, U: ?Sized> core::ops::CoerceUnsized<Arc<U>> for Arc<T> {}
+
+// This is to allow `Arc<U>` to be dispatched on when `Arc<T>` can be coerced into `Arc<U>`.
+impl<T: ?Sized + Unsize<U>, U: ?Sized> core::ops::DispatchFromDyn<Arc<U>> for Arc<T> {}
 
 // SAFETY: It is safe to send `Arc<T>` to another thread when the underlying `T` is `Sync` because
 // it effectively means sharing `&T` (which is safe because `T` is `Sync`); additionally, it needs
@@ -296,6 +324,13 @@ pub struct ArcBorrow<'a, T: ?Sized + 'a> {
 
 // This is to allow [`ArcBorrow`] (and variants) to be used as the type of `self`.
 impl<T: ?Sized> core::ops::Receiver for ArcBorrow<'_, T> {}
+
+// This is to allow `ArcBorrow<U>` to be dispatched on when `ArcBorrow<T>` can be coerced into
+// `ArcBorrow<U>`.
+impl<T: ?Sized + Unsize<U>, U: ?Sized> core::ops::DispatchFromDyn<ArcBorrow<'_, U>>
+    for ArcBorrow<'_, T>
+{
+}
 
 impl<T: ?Sized> Clone for ArcBorrow<'_, T> {
     fn clone(&self) -> Self {
