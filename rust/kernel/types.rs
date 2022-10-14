@@ -175,6 +175,33 @@ impl PointerWrapper for () {
     unsafe fn from_pointer(_: *const core::ffi::c_void) -> Self {}
 }
 
+impl<T: PointerWrapper> PointerWrapper for Option<T> {
+    type Borrowed<'a> = Option<T::Borrowed<'a>>;
+
+    fn into_pointer(self) -> *const core::ffi::c_void {
+        match self {
+            None => core::ptr::null(),
+            Some(p) => p.into_pointer(),
+        }
+    }
+
+    unsafe fn borrow<'a>(p: *const core::ffi::c_void) -> Self::Borrowed<'a> {
+        if p.is_null() {
+            None
+        } else {
+            Some(unsafe { T::borrow(p) })
+        }
+    }
+
+    unsafe fn from_pointer(p: *const core::ffi::c_void) -> Self {
+        if p.is_null() {
+            None
+        } else {
+            Some(unsafe { T::from_pointer(p) })
+        }
+    }
+}
+
 /// Runs a cleanup function/closure when dropped.
 ///
 /// The [`ScopeGuard::dismiss`] function prevents the cleanup function from running.
