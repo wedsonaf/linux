@@ -61,7 +61,7 @@ impl<T> RwSemaphore<T> {
     /// # Safety
     ///
     /// The caller must call [`RwSemaphore::init_lock`] before using the rw semaphore.
-    pub unsafe fn new(t: T) -> Self {
+    pub const unsafe fn new(t: T) -> Self {
         Self {
             rwsem: Opaque::uninit(),
             data: UnsafeCell::new(t),
