@@ -115,6 +115,12 @@ impl Task {
         }
     }
 
+    /// Determines if the running thread was sked to stop.
+    pub fn should_stop() -> bool {
+        // SAFETY: There are no extra safety requirements.
+        unsafe { bindings::kthread_should_stop() }
+    }
+
     /// Returns the group leader of the given task.
     pub fn group_leader(&self) -> &Task {
         // SAFETY: By the type invariant, we know that `self.0` is a valid task. Valid tasks always
@@ -176,7 +182,7 @@ impl Task {
     /// // Set count to 10 and spawn 10 threads.
     /// *COUNT.lock() = 10;
     /// for i in 0..10 {
-    ///     Task::spawn(fmt!("test{i}"), threadfn).unwrap();
+    ///     Task::spawn(fmt!("test{i}"), threadfn).unwrap().detach();
     /// }
     ///
     /// // Wait for count to drop to zero.
@@ -185,10 +191,7 @@ impl Task {
     ///     COUNT_IS_ZERO.wait(&mut guard);
     /// }
     /// ```
-    pub fn spawn<T: FnOnce() + Send + 'static>(
-        name: fmt::Arguments<'_>,
-        func: T,
-    ) -> Result<ARef<Task>> {
+    pub fn spawn<T: FnOnce() + Send + 'static>(name: fmt::Arguments<'_>, func: T) -> Result<KTask> {
         unsafe extern "C" fn threadfn<T: FnOnce() + Send + 'static>(
             arg: *mut core::ffi::c_void,
         ) -> core::ffi::c_int {
@@ -222,13 +225,13 @@ impl Task {
 
         // SAFETY: Since the kthread creation succeeded and we haven't run it yet, we know the task
         // is valid.
-        let task: ARef<_> = unsafe { &*(ktask as *const Task) }.into();
+        let task = ARef::from(unsafe { &*(ktask.cast::<Task>()) });
 
         // Wakes up the thread, otherwise it won't run.
         task.wake_up();
 
         guard.dismiss();
-        Ok(task)
+        Ok(KTask { task: Some(task) })
     }
 }
 
@@ -242,5 +245,45 @@ unsafe impl crate::types::AlwaysRefCounted for Task {
     unsafe fn dec_ref(obj: ptr::NonNull<Self>) {
         // SAFETY: The safety requirements guarantee that the refcount is nonzero.
         unsafe { bindings::put_task_struct(obj.cast().as_ptr()) }
+    }
+}
+
+/// A kernel task.
+///
+/// It has all properties of a task, but its [`Drop`] implementation requests that the task stop
+/// and waits for it to do so. When this behaviour is not desired, the caller can call
+/// [`KTask::detach`] to convert a [`KTask`] to an [`ARef<Task>`].
+pub struct KTask {
+    task: Option<ARef<Task>>,
+}
+
+// SAFETY: `KTask` can be shared across threads for the same reason as `Task`.
+unsafe impl Sync for KTask {}
+
+impl KTask {
+    /// Detaches from the kernel thread so that we don't have to wait for it to complete on `drop`.
+    pub fn detach(mut self) -> ARef<Task> {
+        // SAFETY: We know that `self.task` is `Some(_)` because the only way for it not to be is
+        // to call this function, but it consumes `self`, so one cannot call it twice.
+        unsafe { self.task.take().unwrap_unchecked() }
+    }
+}
+
+impl Deref for KTask {
+    type Target = Task;
+
+    fn deref(&self) -> &Self::Target {
+        // SAFETY: We know that `self.task` is `Some(_)` because the only way for it not to be is
+        // to `KTask::detach`, but that consumes `KTask` so one cannot call `deref`.
+        unsafe { self.task.as_ref().unwrap_unchecked() }
+    }
+}
+
+impl Drop for KTask {
+    fn drop(&mut self) {
+        if let Some(task) = self.task.take() {
+            // SAFETY: We hold a reference to the task, so it's safe to call this function.
+            unsafe { bindings::kthread_stop(task.0.get()) };
+        }
     }
 }
