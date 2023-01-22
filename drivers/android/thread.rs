@@ -395,7 +395,7 @@ impl Thread {
                     let ptr = unsafe { obj.__bindgen_anon_1.binder } as _;
                     let cookie = obj.cookie as _;
                     let flags = obj.flags as _;
-                    let node = self.process.as_arc_borrow().get_node(
+                    let node = self.process.as_arc_inner().get_node(
                         ptr,
                         cookie,
                         flags,

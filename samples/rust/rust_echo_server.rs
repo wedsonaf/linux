@@ -8,7 +8,7 @@ use kernel::{
     net::{self, Ipv4Addr, SocketAddr, SocketAddrV4},
     prelude::*,
     spawn_task,
-    sync::{Arc, ArcBorrow},
+    sync::{Arc, ArcInner},
 };
 
 async fn echo_server(stream: TcpStream) -> Result {
@@ -25,12 +25,12 @@ async fn echo_server(stream: TcpStream) -> Result {
 async fn accept_loop(listener: TcpListener, executor: Arc<impl Executor>) {
     loop {
         if let Ok(stream) = listener.accept().await {
-            let _ = spawn_task!(executor.as_arc_borrow(), echo_server(stream));
+            let _ = spawn_task!(executor.as_arc_inner(), echo_server(stream));
         }
     }
 }
 
-fn start_listener(ex: ArcBorrow<'_, impl Executor + Send + Sync + 'static>) -> Result {
+fn start_listener(ex: &ArcInner<impl Executor + Send + Sync + 'static>) -> Result {
     let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::ANY, 8080));
     let listener = TcpListener::try_new(net::init_ns(), &addr)?;
     spawn_task!(ex, accept_loop(listener, ex.into()))?;

@@ -455,7 +455,7 @@ pub trait ThreadedHandler {
 /// # use kernel::prelude::*;
 /// use kernel::{
 ///     irq,
-///     sync::{Arc, ArcBorrow},
+///     sync::{Arc, ArcInner},
 /// };
 ///
 /// struct Example;
@@ -463,7 +463,7 @@ pub trait ThreadedHandler {
 /// impl irq::ThreadedHandler for Example {
 ///     type Data = Arc<u32>;
 ///
-///     fn handle_threaded_irq(_data: ArcBorrow<'_, u32>) -> irq::Return {
+///     fn handle_threaded_irq(_data: &ArcInner<u32>) -> irq::Return {
 ///         irq::Return::None
 ///     }
 /// }

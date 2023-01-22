@@ -7,7 +7,7 @@ use kernel::{
     file::{self, File},
     io_buffer::{IoBufferReader, IoBufferWriter},
     miscdev,
-    sync::{Arc, ArcBorrow, CondVar, Mutex, UniqueArc},
+    sync::{Arc, ArcInner, CondVar, Mutex, UniqueArc},
 };
 
 module! {
@@ -61,7 +61,7 @@ impl file::Operations for Token {
     }
 
     fn read(
-        shared: ArcBorrow<'_, SharedState>,
+        shared: &ArcInner<SharedState>,
         _: &File,
         data: &mut impl IoBufferWriter,
         offset: u64,
@@ -94,7 +94,7 @@ impl file::Operations for Token {
     }
 
     fn write(
-        shared: ArcBorrow<'_, SharedState>,
+        shared: &ArcInner<SharedState>,
         _: &File,
         data: &mut impl IoBufferReader,
         _offset: u64,

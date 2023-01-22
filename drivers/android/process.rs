@@ -11,7 +11,7 @@ use kernel::{
     pages::Pages,
     prelude::*,
     rbtree::RBTree,
-    sync::{Arc, ArcBorrow, Guard, Mutex, UniqueArc},
+    sync::{Arc, ArcInner, Guard, Mutex, UniqueArc},
     task::Task,
     user_ptr::{UserSlicePtr, UserSlicePtrReader},
     Either,
@@ -314,7 +314,7 @@ impl Process {
         Either::Right(Registration::new(self, thread, &mut inner))
     }
 
-    fn get_thread(self: ArcBorrow<'_, Self>, id: i32) -> Result<Arc<Thread>> {
+    fn get_thread(self: &ArcInner<Self>, id: i32) -> Result<Arc<Thread>> {
         // TODO: Consider using read/write locks here instead.
         {
             let inner = self.inner.lock();
@@ -343,7 +343,7 @@ impl Process {
     }
 
     fn set_as_manager(
-        self: ArcBorrow<'_, Self>,
+        self: &ArcInner<Self>,
         info: Option<FlatBinderObject>,
         thread: &Thread,
     ) -> Result {
@@ -370,7 +370,7 @@ impl Process {
     }
 
     pub(crate) fn get_node(
-        self: ArcBorrow<'_, Self>,
+        self: &ArcInner<Self>,
         ptr: usize,
         cookie: usize,
         flags: u32,
@@ -766,10 +766,10 @@ impl Process {
 }
 
 impl IoctlHandler for Process {
-    type Target<'a> = ArcBorrow<'a, Process>;
+    type Target<'a> = &'a ArcInner<Process>;
 
     fn write(
-        this: ArcBorrow<'_, Process>,
+        this: &ArcInner<Process>,
         _file: &File,
         cmd: u32,
         reader: &mut UserSlicePtrReader,
@@ -788,7 +788,7 @@ impl IoctlHandler for Process {
     }
 
     fn read_write(
-        this: ArcBorrow<'_, Process>,
+        this: &ArcInner<Process>,
         file: &File,
         cmd: u32,
         data: UserSlicePtr,
@@ -891,19 +891,19 @@ impl file::Operations for Process {
         }
     }
 
-    fn ioctl(this: ArcBorrow<'_, Process>, file: &File, cmd: &mut IoctlCommand) -> Result<i32> {
+    fn ioctl(this: &ArcInner<Process>, file: &File, cmd: &mut IoctlCommand) -> Result<i32> {
         cmd.dispatch::<Self>(this, file)
     }
 
     fn compat_ioctl(
-        this: ArcBorrow<'_, Process>,
+        this: &ArcInner<Process>,
         file: &File,
         cmd: &mut IoctlCommand,
     ) -> Result<i32> {
         cmd.dispatch::<Self>(this, file)
     }
 
-    fn mmap(this: ArcBorrow<'_, Process>, _file: &File, vma: &mut mm::virt::Area) -> Result {
+    fn mmap(this: &ArcInner<Process>, _file: &File, vma: &mut mm::virt::Area) -> Result {
         // We don't allow mmap to be used in a different process.
         if !core::ptr::eq(Task::current().group_leader(), &*this.task) {
             return Err(EINVAL);
@@ -927,7 +927,7 @@ impl file::Operations for Process {
         this.create_mapping(vma)
     }
 
-    fn poll(this: ArcBorrow<'_, Process>, file: &File, table: &PollTable) -> Result<u32> {
+    fn poll(this: &ArcInner<Process>, file: &File, table: &PollTable) -> Result<u32> {
         let thread = this.get_thread(Task::current().pid())?;
         let (from_proc, mut mask) = thread.poll(file, table);
         if mask == 0 && from_proc && !this.inner.lock().work.is_empty() {

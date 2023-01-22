@@ -10,7 +10,7 @@ use kernel::{
     irq::{self, ExtraResult, IrqData, LockedIrqData},
     power,
     prelude::*,
-    sync::{Arc, ArcBorrow, RawSpinLock},
+    sync::{Arc, ArcInner, RawSpinLock},
 };
 
 const GPIODIR: usize = 0x400;
@@ -59,7 +59,7 @@ struct PL061Device;
 impl gpio::Chip for PL061Device {
     type Data = Arc<DeviceData>;
 
-    fn get_direction(data: ArcBorrow<'_, DeviceData>, offset: u32) -> Result<gpio::LineDirection> {
+    fn get_direction(data: &ArcInner<DeviceData>, offset: u32) -> Result<gpio::LineDirection> {
         let pl061 = data.resources().ok_or(ENXIO)?;
         Ok(if pl061.base.readb(GPIODIR) & bit(offset) != 0 {
             gpio::LineDirection::Out
@@ -68,7 +68,7 @@ impl gpio::Chip for PL061Device {
         })
     }
 
-    fn direction_input(data: ArcBorrow<'_, DeviceData>, offset: u32) -> Result {
+    fn direction_input(data: &ArcInner<DeviceData>, offset: u32) -> Result {
         let _guard = data.inner.lock_irqdisable();
         let pl061 = data.resources().ok_or(ENXIO)?;
         let mut gpiodir = pl061.base.readb(GPIODIR);
@@ -77,7 +77,7 @@ impl gpio::Chip for PL061Device {
         Ok(())
     }
 
-    fn direction_output(data: ArcBorrow<'_, DeviceData>, offset: u32, value: bool) -> Result {
+    fn direction_output(data: &ArcInner<DeviceData>, offset: u32, value: bool) -> Result {
         let woffset = bit(offset + 2).into();
         let _guard = data.inner.lock_irqdisable();
         let pl061 = data.resources().ok_or(ENXIO)?;
@@ -92,12 +92,12 @@ impl gpio::Chip for PL061Device {
         Ok(())
     }
 
-    fn get(data: ArcBorrow<'_, DeviceData>, offset: u32) -> Result<bool> {
+    fn get(data: &ArcInner<DeviceData>, offset: u32) -> Result<bool> {
         let pl061 = data.resources().ok_or(ENXIO)?;
         Ok(pl061.base.try_readb(bit(offset + 2).into())? != 0)
     }
 
-    fn set(data: ArcBorrow<'_, DeviceData>, offset: u32, value: bool) {
+    fn set(data: &ArcInner<DeviceData>, offset: u32, value: bool) {
         if let Some(pl061) = data.resources() {
             let woffset = bit(offset + 2).into();
             let _ = pl061.base.try_writeb((value as u8) << offset, woffset);
@@ -107,7 +107,7 @@ impl gpio::Chip for PL061Device {
 
 impl gpio::ChipWithIrqChip for PL061Device {
     fn handle_irq_flow(
-        data: ArcBorrow<'_, DeviceData>,
+        data: &ArcInner<DeviceData>,
         desc: &irq::Descriptor,
         domain: &irq::Domain,
     ) {
@@ -127,7 +127,7 @@ impl irq::Chip for PL061Device {
     type Data = Arc<DeviceData>;
 
     fn set_type(
-        data: ArcBorrow<'_, DeviceData>,
+        data: &ArcInner<DeviceData>,
         irq_data: &mut LockedIrqData,
         trigger: u32,
     ) -> Result<ExtraResult> {
@@ -219,7 +219,7 @@ impl irq::Chip for PL061Device {
         Ok(ExtraResult::None)
     }
 
-    fn mask(data: ArcBorrow<'_, DeviceData>, irq_data: &IrqData) {
+    fn mask(data: &ArcInner<DeviceData>, irq_data: &IrqData) {
         let mask = bit(irq_data.hwirq() % irq::HwNumber::from(PL061_GPIO_NR));
         let _guard = data.inner.lock();
         if let Some(pl061) = data.resources() {
@@ -228,7 +228,7 @@ impl irq::Chip for PL061Device {
         }
     }
 
-    fn unmask(data: ArcBorrow<'_, DeviceData>, irq_data: &IrqData) {
+    fn unmask(data: &ArcInner<DeviceData>, irq_data: &IrqData) {
         let mask = bit(irq_data.hwirq() % irq::HwNumber::from(PL061_GPIO_NR));
         let _guard = data.inner.lock();
         if let Some(pl061) = data.resources() {
@@ -240,7 +240,7 @@ impl irq::Chip for PL061Device {
     // This gets called from the edge IRQ handler to ACK the edge IRQ in the GPIOIC
     // (interrupt-clear) register. For level IRQs this is not needed: these go away when the level
     // signal goes away.
-    fn ack(data: ArcBorrow<'_, DeviceData>, irq_data: &IrqData) {
+    fn ack(data: &ArcInner<DeviceData>, irq_data: &IrqData) {
         let mask = bit(irq_data.hwirq() % irq::HwNumber::from(PL061_GPIO_NR));
         let _guard = data.inner.lock();
         if let Some(pl061) = data.resources() {
@@ -248,7 +248,7 @@ impl irq::Chip for PL061Device {
         }
     }
 
-    fn set_wake(data: ArcBorrow<'_, DeviceData>, _irq_data: &IrqData, on: bool) -> Result {
+    fn set_wake(data: &ArcInner<DeviceData>, _irq_data: &IrqData, on: bool) -> Result {
         let pl061 = data.resources().ok_or(ENXIO)?;
         irq::set_wake(pl061.parent_irq, on)
     }
@@ -308,7 +308,7 @@ impl amba::Driver for PL061Device {
 impl power::Operations for PL061Device {
     type Data = Arc<DeviceData>;
 
-    fn suspend(data: ArcBorrow<'_, DeviceData>) -> Result {
+    fn suspend(data: &ArcInner<DeviceData>) -> Result {
         let mut inner = data.inner.lock();
         let pl061 = data.resources().ok_or(ENXIO)?;
         inner.csave_regs.gpio_data = 0;
@@ -329,7 +329,7 @@ impl power::Operations for PL061Device {
         Ok(())
     }
 
-    fn resume(data: ArcBorrow<'_, DeviceData>) -> Result {
+    fn resume(data: &ArcInner<DeviceData>) -> Result {
         let inner = data.inner.lock();
         let pl061 = data.resources().ok_or(ENXIO)?;
 
@@ -350,11 +350,11 @@ impl power::Operations for PL061Device {
         Ok(())
     }
 
-    fn freeze(data: ArcBorrow<'_, DeviceData>) -> Result {
+    fn freeze(data: &ArcInner<DeviceData>) -> Result {
         Self::suspend(data)
     }
 
-    fn restore(data: ArcBorrow<'_, DeviceData>) -> Result {
+    fn restore(data: &ArcInner<DeviceData>) -> Result {
         Self::resume(data)
     }
 }

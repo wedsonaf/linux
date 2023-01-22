@@ -7,7 +7,7 @@ use crate::{
     error::code::*,
     mutex_init,
     revocable::AsyncRevocable,
-    sync::{Arc, ArcBorrow, LockClassKey, Mutex, UniqueArc},
+    sync::{Arc, ArcInner, LockClassKey, Mutex, UniqueArc},
     unsafe_list,
     workqueue::{BoxedQueue, Queue, Work, WorkAdapter},
     Either, Left, Result, Right,
@@ -155,7 +155,7 @@ impl<T: 'static + Send + Future> ArcWake for Task<T> {
         .enqueue(self.clone());
     }
 
-    fn wake_by_ref(self: ArcBorrow<'_, Self>) {
+    fn wake_by_ref(self: &ArcInner<Self>) {
         Arc::from(self).wake();
     }
 }
@@ -238,7 +238,7 @@ impl Executor {
 
 impl super::Executor for Executor {
     fn spawn(
-        self: ArcBorrow<'_, Self>,
+        self: &ArcInner<Self>,
         key: &'static LockClassKey,
         future: impl Future + 'static + Send,
     ) -> Result<Arc<dyn super::Task>> {

@@ -3,7 +3,7 @@
 //! Kernel support for executing futures.
 
 use crate::{
-    sync::{Arc, ArcBorrow, LockClassKey},
+    sync::{Arc, ArcInner, LockClassKey},
     types::PointerWrapper,
     Result,
 };
@@ -46,7 +46,7 @@ pub trait Executor: Sync + Send {
     /// Callers are encouraged to use the [`spawn_task`] macro because it automatically defines a
     /// new lock class key.
     fn spawn(
-        self: ArcBorrow<'_, Self>,
+        self: &ArcInner<Self>,
         lock_class_key: &'static LockClassKey,
         future: impl Future + 'static + Send,
     ) -> Result<Arc<dyn Task>>
@@ -65,11 +65,11 @@ pub trait Executor: Sync + Send {
 /// Types that implement this trait can get a [`Waker`] by calling [`ref_waker`].
 pub trait ArcWake: Send + Sync {
     /// Wakes a task up.
-    fn wake_by_ref(self: ArcBorrow<'_, Self>);
+    fn wake_by_ref(self: &ArcInner<Self>);
 
     /// Wakes a task up and consumes a reference.
     fn wake(self: Arc<Self>) {
-        self.as_arc_borrow().wake_by_ref();
+        self.as_arc_inner().wake_by_ref();
     }
 }
 
@@ -134,8 +134,8 @@ impl<T: Executor + ?Sized> AutoStopHandle<T> {
     /// Returns the executor associated with the auto-stop handle.
     ///
     /// This is so that callers can, for example, spawn new tasks.
-    pub fn executor(&self) -> ArcBorrow<'_, T> {
-        self.executor.as_ref().unwrap().as_arc_borrow()
+    pub fn executor(&self) -> &ArcInner<T> {
+        self.executor.as_ref().unwrap().as_arc_inner()
     }
 }
 

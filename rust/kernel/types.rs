@@ -4,10 +4,7 @@
 //!
 //! C header: [`include/linux/types.h`](../../../../include/linux/types.h)
 
-use crate::{
-    bindings,
-    sync::{Arc, ArcBorrow},
-};
+use crate::bindings;
 use alloc::boxed::Box;
 use core::{
     cell::UnsafeCell,
@@ -101,25 +98,6 @@ impl<T: 'static> PointerWrapper for Box<T> {
     unsafe fn from_pointer(ptr: *const core::ffi::c_void) -> Self {
         // SAFETY: The passed pointer comes from a previous call to [`Self::into_pointer()`].
         unsafe { Box::from_raw(ptr as _) }
-    }
-}
-
-impl<T: 'static> PointerWrapper for Arc<T> {
-    type Borrowed<'a> = ArcBorrow<'a, T>;
-
-    fn into_pointer(self) -> *const core::ffi::c_void {
-        Arc::into_usize(self) as _
-    }
-
-    unsafe fn borrow<'a>(ptr: *const core::ffi::c_void) -> ArcBorrow<'a, T> {
-        // SAFETY: The safety requirements for this function ensure that the underlying object
-        // remains valid for the lifetime of the returned value.
-        unsafe { Arc::borrow_usize(ptr as _) }
-    }
-
-    unsafe fn from_pointer(ptr: *const core::ffi::c_void) -> Self {
-        // SAFETY: The passed pointer comes from a previous call to [`Self::into_pointer()`].
-        unsafe { Arc::from_usize(ptr as _) }
     }
 }
 
