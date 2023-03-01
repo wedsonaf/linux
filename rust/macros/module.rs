@@ -194,11 +194,14 @@ pub(crate) fn module(ts: TokenStream) -> TokenStream {
             // freed until the module is unloaded.
             #[cfg(MODULE)]
             static THIS_MODULE: kernel::ThisModule = unsafe {{
-                kernel::ThisModule::from_ptr(&kernel::bindings::__this_module as *const _ as *mut _)
+                kernel::ThisModule::from_ptr(
+                    &kernel::bindings::__this_module as *const _ as *mut _,
+                    kernel::c_str!(\"{name}\")
+                )
             }};
             #[cfg(not(MODULE))]
             static THIS_MODULE: kernel::ThisModule = unsafe {{
-                kernel::ThisModule::from_ptr(core::ptr::null_mut())
+                kernel::ThisModule::from_ptr(core::ptr::null_mut(), kernel::c_str!(\"{name}\"))
             }};
 
             // Loadable modules need to export the `{{init,cleanup}}_module` identifiers.

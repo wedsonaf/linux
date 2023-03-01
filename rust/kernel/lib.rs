@@ -66,7 +66,7 @@ pub trait Module: Sized + Sync {
 /// Equivalent to `THIS_MODULE` in the C API.
 ///
 /// C header: `include/linux/export.h`
-pub struct ThisModule(*mut bindings::module);
+pub struct ThisModule(*mut bindings::module, &'static str::CStr);
 
 // SAFETY: `THIS_MODULE` may be used from all threads within a module.
 unsafe impl Sync for ThisModule {}
@@ -77,8 +77,16 @@ impl ThisModule {
     /// # Safety
     ///
     /// The pointer must be equal to the right `THIS_MODULE`.
-    pub const unsafe fn from_ptr(ptr: *mut bindings::module) -> ThisModule {
-        ThisModule(ptr)
+    pub const unsafe fn from_ptr(
+        ptr: *mut bindings::module,
+        name: &'static str::CStr,
+    ) -> ThisModule {
+        ThisModule(ptr, name)
+    }
+
+    /// Returns the name of the module.
+    pub const fn name(&self) -> &'static str::CStr {
+        self.1
     }
 }
 
