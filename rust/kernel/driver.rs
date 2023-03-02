@@ -119,6 +119,8 @@ impl<T: DriverOps> Drop for Registration<T> {
 ///   - [`RawDeviceId::ZERO`] is actually a zeroed-out version of the raw device id.
 ///   - [`RawDeviceId::to_rawid`] stores `offset` in the context/data field of the raw device id so
 ///     that buses can recover the pointer to the data.
+///   - [`RawDeviceId::offset_from_rawid`] returns the offset value stored in a previous call to
+///     [`RawDeviceId::to_rawid`].
 pub unsafe trait RawDeviceId {
     /// The raw type that holds the device id.
     ///
@@ -137,6 +139,11 @@ pub unsafe trait RawDeviceId {
     /// location where its associated context information is stored. Implementations must store
     /// this in the appropriate context/data field of the raw type.
     fn to_rawid(&self, offset: isize) -> Self::RawType;
+
+    /// Retrieves an offset from a raw id.
+    ///
+    /// The offset value was previously encoded via a call to [`Self::raw_id`].
+    fn offset_from_rawid(id: &Self::RawType) -> isize;
 }
 
 /// A zero-terminated device id array, followed by context data.
@@ -181,6 +188,7 @@ impl<T: RawDeviceId, U, const N: usize> IdArray<T, U, N> {
     pub const fn as_table(&self) -> IdTable<'_, T, U> {
         IdTable {
             first: &self.ids[0],
+            table_len: N,
             _p: PhantomData,
         }
     }
@@ -188,11 +196,38 @@ impl<T: RawDeviceId, U, const N: usize> IdArray<T, U, N> {
 
 /// A device id table.
 ///
+/// # Invariants
+///
 /// The table is guaranteed to be zero-terminated and to be followed by an array of context data of
 /// type `Option<U>`.
+///
+/// The table is also guaranteed to have `table_len` elements before the zero termination.
 pub struct IdTable<'a, T: RawDeviceId, U> {
     first: &'a T::RawType,
+    table_len: usize,
     _p: PhantomData<&'a U>,
+}
+
+impl<'a, T: RawDeviceId, U> IdTable<'a, T, U> {
+    /// Returns the context data associated with the given raw type.
+    pub fn context_data(&self, ptr: *const T::RawType) -> Option<&'a U> {
+        let begin = self.first as *const T::RawType;
+        // SAFETY: `end` will point one byte beyond the end of the table. We know the table has at
+        // least `self.table_len` elements because that's an invariant of the type.
+        let end = unsafe { begin.add(self.table_len) } as usize;
+        let v = ptr as usize;
+        if v < (begin as usize) || v >= end {
+            return None;
+        }
+        // SAFETY: We know `ptr` is valid because we just checked above that it's within the table.
+        let offset = T::offset_from_rawid(unsafe { &*ptr });
+
+        // SAFETY: The offset comes from a previous call to `offset_from` in `IdArray::new`, which
+        // guarantees that the resulting pointer is within the table.
+        let context_ptr = unsafe { ptr.cast::<u8>().offset(offset).cast::<Option<U>>() };
+        // SAFETY: The id table is still alive, so `context_ptr` is guaranteed to be valid for read.
+        unsafe { (&*context_ptr).as_ref() }
+    }
 }
 
 impl<T: RawDeviceId, U> const AsRef<T::RawType> for IdTable<'_, T, U> {
