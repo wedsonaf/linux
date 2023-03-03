@@ -248,3 +248,44 @@ pub enum Either<L, R> {
     /// Constructs an instance of [`Either`] containing a value of type `R`.
     Right(R),
 }
+
+/// Types that can be transmuted from a byte slice.
+///
+/// # Safety
+///
+/// All elements of the type must be representable with arbitrary bytes. Not all types can be
+/// safely read from byte slices; examples from
+/// <https://doc.rust-lang.org/reference/behavior-considered-undefined.html> include `bool` that
+/// must be either `0` or `1`, and `char` that cannot be a surrogate or above `char::MAX`. pub
+pub unsafe trait FromByteSlice: Sized {
+    /// Creates a mutable reference to [`Self`] from the byte slice.
+    fn from_bytes_mut(buf: &mut [u8], offset: usize) -> Option<&mut Self> {
+        let end = offset.checked_add(core::mem::size_of::<Self>())?;
+        if end > buf.len() {
+            None
+        } else {
+            // SAFETY: The safety requirements of the trait guarantees that `Self` can be cast from
+            // a byte slice.
+            Some(unsafe { &mut *buf[offset..].as_mut_ptr().cast() })
+        }
+    }
+
+    /// Creates a reference to [`Self`] from the byte slice.
+    fn from_bytes(buf: &mut [u8], offset: usize) -> Option<&Self> {
+        let end = offset.checked_add(core::mem::size_of::<Self>())?;
+        if end > buf.len() {
+            None
+        } else {
+            // SAFETY: The safety requirements of the trait guarantees that `Self` can be cast from
+            // a byte slice.
+            Some(unsafe { &*buf[offset..].as_ptr().cast() })
+        }
+    }
+}
+
+unsafe impl FromByteSlice for crate::bindings::heartbeat_msg_data {}
+unsafe impl FromByteSlice for crate::bindings::icmsg_hdr {}
+unsafe impl FromByteSlice for u64 {}
+unsafe impl FromByteSlice for u32 {}
+unsafe impl FromByteSlice for u16 {}
+unsafe impl FromByteSlice for u8 {}
