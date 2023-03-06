@@ -288,9 +288,8 @@ vss_respond_to_host(int error)
  * The host ensures that only one VSS transaction can be active at a time.
  */
 
-void hv_vss_onchannelcallback(void *context)
+void hv_vss_onchannelcallback(struct vmbus_channel *channel, void *context)
 {
-	struct vmbus_channel *channel = context;
 	u32 recvlen;
 	u64 requestid;
 	struct hv_vss_msg *vss_msg;

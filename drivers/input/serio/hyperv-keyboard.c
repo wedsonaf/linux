@@ -235,7 +235,8 @@ static void hv_kbd_handle_received_packet(struct hv_device *hv_dev,
 	}
 }
 
-static void hv_kbd_on_channel_callback(void *context)
+static void hv_kbd_on_channel_callback(struct vmbus_channel *channel,
+				       void *context)
 {
 	struct vmpacket_descriptor *desc;
 	struct hv_device *hv_dev = context;

@@ -244,12 +244,9 @@ static int hvs_send_data(struct vmbus_channel *chan,
 	return __hvs_send_data(chan, &send_buf->hdr, to_write);
 }
 
-static void hvs_channel_cb(void *ctx)
+static void hvs_channel_cb(struct vmbus_channel *chan, void *ctx)
 {
 	struct sock *sk = (struct sock *)ctx;
-	struct vsock_sock *vsk = vsock_sk(sk);
-	struct hvsock *hvs = vsk->trans;
-	struct vmbus_channel *chan = hvs->chan;
 
 	if (hvs_channel_readable(chan))
 		sk->sk_data_ready(sk);

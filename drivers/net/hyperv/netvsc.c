@@ -1710,10 +1710,9 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 /* Call back when data is available in host ring buffer.
  * Processing is deferred until network softirq (NAPI)
  */
-void netvsc_channel_cb(void *context)
+void netvsc_channel_cb(struct vmbus_channel *channel, void *context)
 {
 	struct netvsc_channel *nvchan = context;
-	struct vmbus_channel *channel = nvchan->channel;
 	struct hv_ring_buffer_info *rbi = &channel->inbound;
 
 	/* preload first vmpacket descriptor */

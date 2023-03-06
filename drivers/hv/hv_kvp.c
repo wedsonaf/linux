@@ -632,9 +632,8 @@ response_done:
  * we stash away the transaction state in a set of global variables.
  */
 
-void hv_kvp_onchannelcallback(void *context)
+void hv_kvp_onchannelcallback(struct vmbus_channel *channel, void *context)
 {
-	struct vmbus_channel *channel = context;
 	u32 recvlen;
 	u64 requestid;
 

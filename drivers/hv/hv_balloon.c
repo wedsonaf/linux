@@ -1411,7 +1411,7 @@ static void balloon_down(struct hv_dynmem_device *dm,
 	dm->state = DM_INITIALIZED;
 }
 
-static void balloon_onchannelcallback(void *context);
+static onchannel_t balloon_onchannelcallback;
 
 static int dm_thread_func(void *dm_dev)
 {
@@ -1515,7 +1515,8 @@ static void cap_resp(struct hv_dynmem_device *dm,
 	complete(&dm->host_event);
 }
 
-static void balloon_onchannelcallback(void *context)
+static void balloon_onchannelcallback(struct vmbus_channel *channel,
+				      void *context)
 {
 	struct hv_device *dev = context;
 	u32 recvlen;

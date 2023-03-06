@@ -235,7 +235,7 @@ void netvsc_linkstatus_callback(struct net_device *net,
 int netvsc_recv_callback(struct net_device *net,
 			 struct netvsc_device *nvdev,
 			 struct netvsc_channel *nvchan);
-void netvsc_channel_cb(void *context);
+onchannel_t netvsc_channel_cb;
 int netvsc_poll(struct napi_struct *napi, int budget);
 
 void netvsc_xdp_xmit(struct sk_buff *skb, struct net_device *ndev);

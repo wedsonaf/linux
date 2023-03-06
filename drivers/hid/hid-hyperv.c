@@ -307,7 +307,8 @@ static void mousevsc_on_receive(struct hv_device *device,
 
 }
 
-static void mousevsc_on_channel_callback(void *context)
+static void mousevsc_on_channel_callback(struct vmbus_channel *channel,
+					 void *context)
 {
 	struct hv_device *device = context;
 	struct vmpacket_descriptor *desc;

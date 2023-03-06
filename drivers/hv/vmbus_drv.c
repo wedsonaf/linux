@@ -1285,7 +1285,7 @@ static void vmbus_chan_sched(struct hv_per_cpu_context *hv_cpu)
 		return;
 
 	for_each_set_bit(relid, recv_int_page, maxbits) {
-		void (*callback_fn)(void *context);
+		onchannel_t *callback_fn;
 		struct vmbus_channel *channel;
 
 		if (!sync_test_and_clear_bit(relid, recv_int_page))
@@ -1330,7 +1330,8 @@ static void vmbus_chan_sched(struct hv_per_cpu_context *hv_cpu)
 
 		switch (channel->callback_mode) {
 		case HV_CALL_ISR:
-			(*callback_fn)(channel->channel_callback_context);
+			(*callback_fn)(channel,
+				       channel->channel_callback_context);
 			break;
 
 		case HV_CALL_BATCHED:

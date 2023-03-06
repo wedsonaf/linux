@@ -90,9 +90,8 @@ hv_uio_irqcontrol(struct uio_info *info, s32 irq_state)
 /*
  * Callback from vmbus_event when something is in inbound ring.
  */
-static void hv_uio_channel_cb(void *context)
+static void hv_uio_channel_cb(struct vmbus_channel *chan, void *context)
 {
-	struct vmbus_channel *chan = context;
 	struct hv_device *hv_dev = chan->device_obj;
 	struct hv_uio_private_data *pdata = hv_get_drvdata(hv_dev);
 
@@ -158,7 +157,7 @@ hv_uio_new_channel(struct vmbus_channel *new_sc)
 
 	/* Create host communication ring */
 	ret = vmbus_open(new_sc, ring_bytes, ring_bytes, NULL, 0,
-			 hv_uio_channel_cb, new_sc);
+			 hv_uio_channel_cb, NULL);
 	if (ret) {
 		dev_err(device, "vmbus_open subchannel failed: %d\n", ret);
 		return;
@@ -206,7 +205,7 @@ hv_uio_open(struct uio_info *info, struct inode *inode)
 	vmbus_set_sc_create_callback(dev->channel, hv_uio_new_channel);
 
 	ret = vmbus_connect_ring(dev->channel,
-				 hv_uio_channel_cb, dev->channel);
+				 hv_uio_channel_cb, NULL);
 	if (ret == 0)
 		dev->channel->inbound.ring_buffer->interrupt_mask = 1;
 	else

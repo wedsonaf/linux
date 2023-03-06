@@ -489,7 +489,7 @@ static void synthvid_recv_sub(struct hv_device *hdev)
 }
 
 /* Receive callback for messages from the host */
-static void synthvid_receive(void *ctx)
+static void synthvid_receive(struct vmbus_channel *channel, void *ctx)
 {
 	struct hv_device *hdev = ctx;
 	struct fb_info *info = hv_get_drvdata(hdev);

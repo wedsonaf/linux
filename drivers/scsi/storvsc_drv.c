@@ -356,7 +356,7 @@ static struct scsi_transport_template *fc_transport_template;
 #endif
 
 static struct scsi_host_template scsi_driver;
-static void storvsc_on_channel_callback(void *context);
+static onchannel_t storvsc_on_channel_callback;
 
 #define STORVSC_MAX_LUNS_PER_TARGET			255
 #define STORVSC_MAX_TARGETS				2
@@ -1199,9 +1199,9 @@ static void storvsc_on_receive(struct storvsc_device *stor_device,
 	}
 }
 
-static void storvsc_on_channel_callback(void *context)
+static void storvsc_on_channel_callback(struct vmbus_channel *channel,
+					void *context)
 {
-	struct vmbus_channel *channel = (struct vmbus_channel *)context;
 	const struct vmpacket_descriptor *desc;
 	struct hv_device *device;
 	struct storvsc_device *stor_device;
@@ -1307,7 +1307,7 @@ static int storvsc_connect_to_vsp(struct hv_device *device, u32 ring_size,
 			 ring_size,
 			 (void *)&props,
 			 sizeof(struct vmstorage_channel_properties),
-			 storvsc_on_channel_callback, device->channel);
+			 storvsc_on_channel_callback, NULL);
 
 	if (ret != 0)
 		return ret;

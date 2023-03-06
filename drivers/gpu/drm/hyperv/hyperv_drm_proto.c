@@ -448,7 +448,7 @@ static void hyperv_receive_sub(struct hv_device *hdev)
 	}
 }
 
-static void hyperv_receive(void *ctx)
+static void hyperv_receive(struct vmbus_channel *channel, void *ctx)
 {
 	struct hv_device *hdev = ctx;
 	struct hyperv_drm_device *hv = hv_get_drvdata(hdev);

@@ -652,7 +652,7 @@ static void vmbus_free_requestor(struct vmbus_requestor *rqstor)
 
 static int __vmbus_open(struct vmbus_channel *newchannel,
 		       void *userdata, u32 userdatalen,
-		       void (*onchannelcallback)(void *context), void *context)
+		       onchannel_t onchannelcallback, void *context)
 {
 	struct vmbus_channel_open_channel *open_msg;
 	struct vmbus_channel_msginfo *open_info = NULL;
@@ -792,7 +792,7 @@ error_clean_ring:
  * vmbus_connect_ring - Open the channel but reuse ring buffer
  */
 int vmbus_connect_ring(struct vmbus_channel *newchannel,
-		       void (*onchannelcallback)(void *context), void *context)
+		       onchannel_t *onchannelcallback, void *context)
 {
 	return  __vmbus_open(newchannel, NULL, 0, onchannelcallback, context);
 }
@@ -804,7 +804,7 @@ EXPORT_SYMBOL_GPL(vmbus_connect_ring);
 int vmbus_open(struct vmbus_channel *newchannel,
 	       u32 send_ringbuffer_size, u32 recv_ringbuffer_size,
 	       void *userdata, u32 userdatalen,
-	       void (*onchannelcallback)(void *context), void *context)
+	       onchannel_t *onchannelcallback, void *context)
 {
 	int err;
 

@@ -587,7 +587,7 @@ struct hv_pci_compl {
 	s32 completion_status;
 };
 
-static void hv_pci_onchannelcallback(void *context);
+static onchannel_t hv_pci_onchannelcallback;
 
 #ifdef CONFIG_X86
 #define DELIVERY_MODE	APIC_DELIVERY_MODE_FIXED
@@ -1908,7 +1908,7 @@ static void hv_compose_msi_msg(struct irq_data *data, struct msi_msg *msg)
 			spin_unlock_irqrestore(&channel->sched_lock, flags);
 			goto enable_tasklet;
 		}
-		hv_pci_onchannelcallback(hbus);
+		hv_pci_onchannelcallback(channel, hbus);
 		spin_unlock_irqrestore(&channel->sched_lock, flags);
 
 		if (hpdev->state == hv_pcichild_ejecting) {
@@ -2822,12 +2822,11 @@ static void hv_pci_eject_device(struct hv_pci_dev *hpdev)
  * This function is invoked whenever the host sends a packet to
  * this channel (which is private to this root PCI bus).
  */
-static void hv_pci_onchannelcallback(void *context)
+static void hv_pci_onchannelcallback(struct vmbus_channel *chan, void *context)
 {
 	const int packet_size = 0x100;
 	int ret;
 	struct hv_pcibus_device *hbus = context;
-	struct vmbus_channel *chan = hbus->hdev->channel;
 	u32 bytes_recvd;
 	u64 req_id, req_addr;
 	struct vmpacket_descriptor *desc;
