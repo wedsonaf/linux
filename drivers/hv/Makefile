@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 obj-$(CONFIG_HYPERV)		+= hv_vmbus.o
 obj-$(CONFIG_HYPERV_UTILS)	+= hv_utils.o
+obj-$(CONFIG_HYPERV_UTILS_RUST)	+= hv_heartbeat.o
 obj-$(CONFIG_HYPERV_BALLOON)	+= hv_balloon.o
 
 CFLAGS_hv_trace.o = -I$(src)
