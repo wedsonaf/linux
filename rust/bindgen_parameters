@@ -17,5 +17,21 @@
 # warning. We don't need to peek into it anyway.
 --opaque-type spinlock
 
+# These hyper-v types packed with bitfields, which results in bindgen generating
+# code that is rejected by Rust.
+--opaque-type hv_nested_enlightenments_control
+--opaque-type hv_vp_assist_page
+--opaque-type hv_msi_address_register
+--opaque-type hv_msi_data_register
+--opaque-type hv_msi_entry__bindgen_ty_1
+--opaque-type hv_ioapic_rte
+--opaque-type hv_interrupt_entry
+--opaque-type hv_retarget_device_interrupt
+--opaque-type hv_device_id
+--opaque-type hv_input_map_device_interrupt
+--opaque-type hv_output_map_device_interrupt
+--opaque-type hv_input_unmap_device_interrupt
+--opaque-type hv_ring_buffer
+
 # `seccomp`'s comment gets understood as a doctest
 --no-doc-comments
