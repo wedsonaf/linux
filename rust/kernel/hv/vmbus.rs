@@ -56,7 +56,11 @@ pub trait Driver {
     const ID_TABLE: Option<driver::IdTable<'static, DeviceId, Self::IdInfo>> = None;
 
     /// Probes for the device with the given id.
-    fn probe(dev: &mut Device, id_info: Option<&Self::IdInfo>) -> Result<Self::Data>;
+    fn probe(
+        dev: &mut Device,
+        chan: super::ChannelToOpen,
+        id_info: Option<&Self::IdInfo>,
+    ) -> Result<Self::Data>;
 
     /// Cleans any resources up that are associated with the device.
     ///
@@ -135,7 +139,10 @@ impl<T: Driver> Adapter<T> {
             // `pdev`.
             let mut dev = unsafe { Device::from_ptr(pdev) };
             let info = Self::get_id_info(id);
-            let data = T::probe(&mut dev, info)?;
+            // SAFETY: `pdev` is valid and the channel stored in it also valid and not opened yet,
+            // these are guaranteed by the contract with the C code.
+            let chan = unsafe { super::ChannelToOpen::new((*pdev).channel) };
+            let data = T::probe(&mut dev, chan, info)?;
             // SAFETY: `pdev` is guaranteed to be a valid, non-null pointer.
             unsafe { bindings::hv_set_drvdata(pdev, data.into_foreign() as _) };
             Ok(0)
@@ -215,18 +222,24 @@ unsafe impl device::RawDevice for Device {
     }
 }
 
+/// Calculates the ring size for a payload of the given size.
+pub fn ring_size(payload_size: usize) -> usize {
+    unsafe { bindings::VMBUS_RING_SIZE(payload_size) }
+}
+
 /// Declares a kernel module that exposes a single vmbus driver.
 ///
 /// # Examples
 ///
 /// ```ignore
 /// # use kernel::prelude::*;
+/// # use kernel::hv;
 /// use kernel::hv::vmbus;
 ///
 /// struct MyDriver;
 /// impl vmbus::Driver for MyDriver {
 ///     // [...]
-/// #    fn probe(_: &mut vmbus::Device, _: Option<&Self::IdInfo>) -> Result {
+/// #    fn probe(_: &mut vmbus::Device, _: hv::ChannelToOpen, _: Option<&Self::IdInfo>) -> Result {
 /// #        Ok(())
 /// #    }
 /// }
@@ -251,12 +264,13 @@ macro_rules! module_vmbus_driver {
 ///
 /// ```
 /// # use kernel::prelude::*;
+/// # use kernel::hv;
 /// use kernel::hv::{guid, vmbus};
 ///
 /// struct MyDriver;
 /// impl vmbus::Driver for MyDriver {
 ///     // [...]
-/// #    fn probe(_: &mut vmbus::Device, _: Option<&Self::IdInfo>) -> Result {
+/// #    fn probe(_: &mut vmbus::Device, _: hv::ChannelToOpen, _: Option<&Self::IdInfo>) -> Result {
 /// #        Ok(())
 /// #    }
 ///     kernel::define_vmbus_id_table! {(), [
@@ -279,12 +293,13 @@ macro_rules! define_vmbus_id_table {
 ///
 /// ```ignore
 /// # use kernel::prelude::*;
+/// # use kernel::hv;
 /// use kernel::hv::vmbus;
 ///
 /// struct MyDriver;
 /// impl vmbus::Driver for MyDriver {
 ///     // [...]
-/// #    fn probe(_: &mut vmbus::Device, _: Option<&Self::IdInfo>) -> Result {
+/// #    fn probe(_: &mut vmbus::Device, _: hv::ChannelToOpen, _: Option<&Self::IdInfo>) -> Result {
 /// #        Ok(())
 /// #    }
 ///     kernel::define_vmbus_single_id!("18cf0edb-1a1b-4f68-bca6-49f01899e264");
