@@ -21,6 +21,7 @@
 #include <linux/bug.h>
 #include <linux/build_bug.h>
 #include <linux/refcount.h>
+#include <linux/hyperv.h>
 
 __noreturn void rust_helper_BUG(void)
 {
@@ -45,6 +46,18 @@ bool rust_helper_refcount_dec_and_test(refcount_t *r)
 	return refcount_dec_and_test(r);
 }
 EXPORT_SYMBOL_GPL(rust_helper_refcount_dec_and_test);
+
+void rust_helper_hv_set_drvdata(struct hv_device *dev, void *data)
+{
+	hv_set_drvdata(dev, data);
+}
+EXPORT_SYMBOL_GPL(rust_helper_hv_set_drvdata);
+
+void *rust_helper_hv_get_drvdata(struct hv_device *dev)
+{
+	return hv_get_drvdata(dev);
+}
+EXPORT_SYMBOL_GPL(rust_helper_hv_get_drvdata);
 
 /*
  * We use `bindgen`'s `--size_t-is-usize` option to bind the C `size_t` type

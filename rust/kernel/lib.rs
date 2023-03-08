@@ -13,6 +13,7 @@
 
 #![no_std]
 #![feature(allocator_api)]
+#![feature(associated_type_defaults)]
 #![feature(coerce_unsized)]
 #![feature(const_ptr_offset_from)]
 #![feature(const_refs_to_cell)]
@@ -35,6 +36,8 @@ mod build_assert;
 pub mod device;
 pub mod driver;
 pub mod error;
+#[cfg(CONFIG_HYPERV)]
+pub mod hv;
 pub mod prelude;
 pub mod print;
 mod static_assert;
