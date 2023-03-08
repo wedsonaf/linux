@@ -227,6 +227,46 @@ pub fn ring_size(payload_size: usize) -> usize {
     unsafe { bindings::VMBUS_RING_SIZE(payload_size) }
 }
 
+/// Creates a response for a `negotiate` resquest.
+///
+/// `fw_versions` is a slice containing all supported framework versions.
+/// `srv_versions`is a slice containing all supported service versions.
+///
+/// On success, returns the pair of negotiated framework and service versions, and updates `buf`
+/// to hold the response.
+pub fn prep_negotiate_resp(
+    buf: &mut [u8],
+    fw_versions: &[i32],
+    srv_versions: &[i32],
+) -> Option<(i32, i32)> {
+    let mut fw = 0;
+    let mut srv = 0;
+
+    if buf.len() < super::BUSPIPE_HDR_SIZE {
+        return None;
+    }
+
+    // SAFETY: All buffers are valid for the duration of this call due to their lifetimes.
+    let res = unsafe {
+        bindings::vmbus_prep_negotiate_resp(
+            buf[super::BUSPIPE_HDR_SIZE..].as_mut_ptr().cast(),
+            buf.as_mut_ptr(),
+            buf.len().try_into().ok()?,
+            fw_versions.as_ptr(),
+            fw_versions.len().try_into().ok()?,
+            srv_versions.as_ptr(),
+            srv_versions.len().try_into().ok()?,
+            &mut fw,
+            &mut srv,
+        )
+    };
+    if res {
+        Some((fw, srv))
+    } else {
+        None
+    }
+}
+
 /// Declares a kernel module that exposes a single vmbus driver.
 ///
 /// # Examples

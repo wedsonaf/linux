@@ -13,6 +13,13 @@ use core::marker::PhantomData;
 
 pub mod vmbus;
 
+/// Size of the C `vmbuspipe_hdr` type.
+pub const BUSPIPE_HDR_SIZE: usize = core::mem::size_of::<bindings::vmbuspipe_hdr>();
+
+/// Size of the C `vmbuspipe_hdr` and `icmsg_hdr` types, which are the beginning of packets
+/// received through a [`Channel`].
+pub const ICMSG_HDR: usize = BUSPIPE_HDR_SIZE + core::mem::size_of::<bindings::icmsg_hdr>();
+
 /// Specifies the type of a packet to be sent via [`Channel::send_packet`] and variants.
 #[repr(u32)]
 pub enum PacketType {
