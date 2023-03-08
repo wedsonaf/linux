@@ -11,7 +11,12 @@ use crate::{
 pub use bindings::{heartbeat_msg_data, icmsg_hdr};
 use core::marker::PhantomData;
 
+#[cfg(CONFIG_HYPERV_UTILS)]
+pub mod util;
 pub mod vmbus;
+
+/// The page size with which Hyper-V runs.
+pub const HYP_PAGE_SIZE: usize = 1 << bindings::HV_HYP_PAGE_SHIFT;
 
 /// Size of the C `vmbuspipe_hdr` type.
 pub const BUSPIPE_HDR_SIZE: usize = core::mem::size_of::<bindings::vmbuspipe_hdr>();
