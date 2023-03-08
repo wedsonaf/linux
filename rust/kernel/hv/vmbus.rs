@@ -16,13 +16,47 @@ use crate::{
 /// A registration of a vmbus driver.
 pub type Registration<T> = driver::Registration<Adapter<T>>;
 
+/// Id of a vmbus device.
+#[derive(Clone, Copy)]
+pub struct DeviceId {
+    /// GUID that identifies the device.
+    pub guid: [u8; 16],
+}
+
+// SAFETY: `ZERO` is all zeroed-out, `to_rawid` stores `offset` in `hv_vmbus_device_id::driver_data`
+// and `offset_from_rawid` retrieves it from the same field.
+unsafe impl const driver::RawDeviceId for DeviceId {
+    type RawType = bindings::hv_vmbus_device_id;
+    const ZERO: Self::RawType = bindings::hv_vmbus_device_id {
+        guid: bindings::guid_t { b: [0u8; 16] },
+        driver_data: 0,
+    };
+
+    fn to_rawid(&self, offset: isize) -> Self::RawType {
+        bindings::hv_vmbus_device_id {
+            guid: bindings::guid_t { b: self.guid },
+            driver_data: offset as _,
+        }
+    }
+
+    fn offset_from_rawid(id: &bindings::hv_vmbus_device_id) -> isize {
+        id.driver_data as _
+    }
+}
+
 /// A vmbus driver.
 pub trait Driver {
     /// Data stored on device by driver.
     type Data: ForeignOwnable + Send + Sync + driver::DeviceRemoval = ();
 
+    /// The type holding information about each device id supported by the driver.
+    type IdInfo: 'static = ();
+
+    /// The table of device ids supported by the driver.
+    const ID_TABLE: Option<driver::IdTable<'static, DeviceId, Self::IdInfo>> = None;
+
     /// Probes for the device with the given id.
-    fn probe(dev: &mut Device) -> Result<Self::Data>;
+    fn probe(dev: &mut Device, id_info: Option<&Self::IdInfo>) -> Result<Self::Data>;
 
     /// Cleans any resources up that are associated with the device.
     ///
@@ -62,12 +96,16 @@ impl<T: Driver> driver::DriverOps for Adapter<T> {
         drv.remove = Some(Self::remove_callback);
         drv.suspend = Some(Self::suspend_callback);
         drv.resume = Some(Self::resume_callback);
-
+        if let Some(t) = T::ID_TABLE {
+            drv.id_table = t.as_ref();
+        }
         // SAFETY:
         //   - `drv` lives at least until the call to `vmbus_driver_unregister()` returns.
         //   - `name` pointer has static lifetime.
         //   - `module.0` lives at least as long as the module.
         //   - `probe()` and `remove()` are static functions.
+        //   - `T::ID_TABLE` is either a raw pointer with static lifetime,
+        //      as guaranteed by the `driver::IdTable` type, or null.
         to_result(unsafe {
             bindings::__vmbus_driver_register(reg, module.0, module.name().as_char_ptr())
         })
@@ -82,16 +120,22 @@ impl<T: Driver> driver::DriverOps for Adapter<T> {
 }
 
 impl<T: Driver> Adapter<T> {
+    fn get_id_info(id: *const bindings::hv_vmbus_device_id) -> Option<&'static T::IdInfo> {
+        let table = T::ID_TABLE?;
+        table.context_data(id)
+    }
+
     extern "C" fn probe_callback(
         pdev: *mut bindings::hv_device,
-        _id: *const bindings::hv_vmbus_device_id,
+        id: *const bindings::hv_vmbus_device_id,
     ) -> core::ffi::c_int {
         from_kernel_result! {
             // SAFETY: `pdev` is valid by the contract with the C code. `dev` is alive only for the
             // duration of this call, so it is guaranteed to remain alive for the lifetime of
             // `pdev`.
             let mut dev = unsafe { Device::from_ptr(pdev) };
-            let data = T::probe(&mut dev)?;
+            let info = Self::get_id_info(id);
+            let data = T::probe(&mut dev, info)?;
             // SAFETY: `pdev` is guaranteed to be a valid, non-null pointer.
             unsafe { bindings::hv_set_drvdata(pdev, data.into_foreign() as _) };
             Ok(0)
@@ -182,7 +226,7 @@ unsafe impl device::RawDevice for Device {
 /// struct MyDriver;
 /// impl vmbus::Driver for MyDriver {
 ///     // [...]
-/// #    fn probe(_: &mut vmbus::Device) -> Result {
+/// #    fn probe(_: &mut vmbus::Device, _: Option<&Self::IdInfo>) -> Result {
 /// #        Ok(())
 /// #    }
 /// }
@@ -198,5 +242,59 @@ unsafe impl device::RawDevice for Device {
 macro_rules! module_vmbus_driver {
     ($($f:tt)*) => {
         $crate::module_driver!(<T>, $crate::hv::vmbus::Adapter<T>, { $($f)* });
+    };
+}
+
+/// Defines the id table for vmbus devices.
+///
+/// # Examples
+///
+/// ```
+/// # use kernel::prelude::*;
+/// use kernel::hv::{guid, vmbus};
+///
+/// struct MyDriver;
+/// impl vmbus::Driver for MyDriver {
+///     // [...]
+/// #    fn probe(_: &mut vmbus::Device, _: Option<&Self::IdInfo>) -> Result {
+/// #        Ok(())
+/// #    }
+///     kernel::define_vmbus_id_table! {(), [
+///         ({ guid: guid(b"13c2c235-9247-414c-9027-a96dc2b8b892") }, None ),
+///     ]}
+/// }
+/// ```
+#[macro_export]
+macro_rules! define_vmbus_id_table {
+    ($data_type:ty, $($t:tt)*) => {
+        $crate::define_id_table!(ID_TABLE, $crate::hv::vmbus::DeviceId, $data_type, $($t)*);
+    };
+}
+
+/// Defines a vmbus id table with a single id given by a guid.
+///
+/// There is no data associated with the id.
+///
+/// # Examples
+///
+/// ```ignore
+/// # use kernel::prelude::*;
+/// use kernel::hv::vmbus;
+///
+/// struct MyDriver;
+/// impl vmbus::Driver for MyDriver {
+///     // [...]
+/// #    fn probe(_: &mut vmbus::Device, _: Option<&Self::IdInfo>) -> Result {
+/// #        Ok(())
+/// #    }
+///     kernel::define_vmbus_single_id!("18cf0edb-1a1b-4f68-bca6-49f01899e264");
+/// }
+/// ```
+#[macro_export]
+macro_rules! define_vmbus_single_id {
+    ($guid:literal) => {
+        $crate::define_vmbus_id_table! {(), [
+            ({guid: $crate::hv::guid(($guid).as_bytes())}, None),
+        ]}
     };
 }
