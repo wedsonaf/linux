@@ -9,9 +9,11 @@ use crate::types::Opaque;
 
 mod arc;
 mod guard;
+mod mutex;
 
 pub use arc::{Arc, ArcBorrow, UniqueArc};
 pub use guard::{Guard, Lock};
+pub use mutex::Mutex;
 
 /// Represents a lockdep class. It's a wrapper around C's `lock_class_key`.
 #[repr(transparent)]
@@ -27,7 +29,6 @@ impl LockClassKey {
         Self(Opaque::uninit())
     }
 
-    #[allow(dead_code)]
     pub(crate) fn as_ptr(&self) -> *mut bindings::lock_class_key {
         self.0.get()
     }

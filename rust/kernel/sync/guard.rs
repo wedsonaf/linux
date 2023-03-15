@@ -57,7 +57,6 @@ impl<'a, L: Lock + ?Sized> Guard<'a, L> {
     /// # Safety
     ///
     /// The caller must ensure that it owns the lock.
-    #[allow(dead_code)]
     pub(crate) unsafe fn new(lock: &'a L, context: L::GuardContext) -> Self {
         Self {
             lock,
