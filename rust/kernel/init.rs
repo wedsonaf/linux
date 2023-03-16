@@ -207,6 +207,7 @@ use core::{
     ptr,
 };
 
+pub mod common;
 #[doc(hidden)]
 pub mod macros;
 
