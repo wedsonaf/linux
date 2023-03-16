@@ -10,10 +10,12 @@ use crate::types::Opaque;
 mod arc;
 mod guard;
 mod mutex;
+mod spinlock;
 
 pub use arc::{Arc, ArcBorrow, UniqueArc};
 pub use guard::{Guard, Lock};
 pub use mutex::Mutex;
+pub use spinlock::SpinLock;
 
 /// Represents a lockdep class. It's a wrapper around C's `lock_class_key`.
 #[repr(transparent)]
