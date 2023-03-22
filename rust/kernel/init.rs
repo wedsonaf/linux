@@ -174,7 +174,7 @@
 //! ```
 //!
 //! For the special case where initializing a field is a single FFI-function call that cannot fail,
-//! there exist helper functions in [`kernel::init::common`]. These functions initialize a single
+//! there exist helper functions [`Opaque::ffi_init`]. These functions initialize a single
 //! [`Opaque`] field by just delegating to the FFI-function. You can use these in combination with
 //! [`pin_init!`].
 //!
@@ -191,6 +191,7 @@
 //! [`impl PinInit<T, E>`]: PinInit
 //! [`impl Init<T, E>`]: Init
 //! [`Opaque`]: kernel::types::Opaque
+//! [`Opaque::ffi_init`]: kernel::types::Opaque::ffi_init
 //! [`pin_data`]: ::macros::pin_data
 
 use crate::{
@@ -207,7 +208,6 @@ use core::{
     ptr,
 };
 
-pub mod common;
 #[doc(hidden)]
 pub mod macros;
 
