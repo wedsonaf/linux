@@ -9,6 +9,8 @@ use crate::types::Opaque;
 
 mod arc;
 mod guard;
+// TODO: remove the public tag.
+pub mod lock;
 mod mutex;
 mod spinlock;
 
