@@ -135,7 +135,7 @@ impl<T: 'static + Send + Future> RevocableTask for Task<T> {
     }
 
     fn flush(self: Arc<Self>) {
-        self.work.cancel();
+        Work::cancel(self.as_arc_borrow());
     }
 
     fn to_links(&self) -> &unsafe_list::Links<dyn RevocableTask> {

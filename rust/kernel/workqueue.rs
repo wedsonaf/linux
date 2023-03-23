@@ -7,7 +7,7 @@
 use crate::{
     bindings, c_str,
     error::{code::*, Result},
-    sync::{Arc, LockClassKey, UniqueArc},
+    sync::{Arc, ArcBorrow, LockClassKey, UniqueArc},
     types::Opaque,
 };
 use core::{fmt, ops::Deref, ptr::NonNull};
@@ -379,17 +379,24 @@ impl Work {
     /// Cancels the work item.
     ///
     /// It is ok for this to be called when the work is not queued.
-    pub fn cancel(&self) {
+    pub fn cancel<T: WorkAdapter<Target = T>>(obj: ArcBorrow<'_, T>) {
+        Self::cancel_adapter::<T>(obj)
+    }
+
+    /// Cancels the work item with the given adapter.
+    ///
+    /// It is ok for this to be called when the work is not queued.
+    pub fn cancel_adapter<A: WorkAdapter>(obj: ArcBorrow<'_, A::Target>) {
+        let field_ptr = (obj.deref() as *const _ as *const u8).wrapping_add(A::FIELD_OFFSET)
+            as *mut bindings::work_struct;
+
         // SAFETY: The work is valid (we have a reference to it), and the function can be called
         // whether the work is queued or not.
-        if unsafe { bindings::cancel_work_sync(self.0.get()) } {
+        if unsafe { bindings::cancel_work_sync(field_ptr) } {
             // SAFETY: When the work was queued, a call to `into_raw` was made. We just canceled
             // the work without it having the chance to run, so we need to explicitly destroy this
             // reference (which would have happened in `work_func` if it did run).
-            #[allow(clippy::borrow_deref_ref)]
-            unsafe {
-                Arc::from_raw(&*self)
-            };
+            unsafe { Arc::from_raw(&*obj) };
         }
     }
 
