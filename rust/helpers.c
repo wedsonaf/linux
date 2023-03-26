@@ -24,6 +24,7 @@
 #include <linux/refcount.h>
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
+#include <linux/sched/signal.h>
 
 __noreturn void rust_helper_BUG(void)
 {
@@ -76,6 +77,12 @@ void rust_helper_spin_unlock_irqrestore(spinlock_t *lock, unsigned long flags)
 }
 EXPORT_SYMBOL_GPL(rust_helper_spin_unlock_irqrestore);
 
+int rust_helper_signal_pending(struct task_struct *t)
+{
+	return signal_pending(t);
+}
+EXPORT_SYMBOL_GPL(rust_helper_signal_pending);
+
 refcount_t rust_helper_REFCOUNT_INIT(int n)
 {
 	return (refcount_t)REFCOUNT_INIT(n);
@@ -111,6 +118,18 @@ long rust_helper_PTR_ERR(__force const void *ptr)
 	return PTR_ERR(ptr);
 }
 EXPORT_SYMBOL_GPL(rust_helper_PTR_ERR);
+
+void rust_helper_get_task_struct(struct task_struct *t)
+{
+	get_task_struct(t);
+}
+EXPORT_SYMBOL_GPL(rust_helper_get_task_struct);
+
+void rust_helper_put_task_struct(struct task_struct *t)
+{
+	put_task_struct(t);
+}
+EXPORT_SYMBOL_GPL(rust_helper_put_task_struct);
 
 /*
  * We use `bindgen`'s `--size_t-is-usize` option to bind the C `size_t` type
