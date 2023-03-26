@@ -25,6 +25,7 @@
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
 #include <linux/sched/signal.h>
+#include <linux/wait.h>
 
 __noreturn void rust_helper_BUG(void)
 {
@@ -76,6 +77,12 @@ void rust_helper_spin_unlock_irqrestore(spinlock_t *lock, unsigned long flags)
 	spin_unlock_irqrestore(lock, flags);
 }
 EXPORT_SYMBOL_GPL(rust_helper_spin_unlock_irqrestore);
+
+void rust_helper_init_wait(struct wait_queue_entry *wq_entry)
+{
+	init_wait(wq_entry);
+}
+EXPORT_SYMBOL_GPL(rust_helper_init_wait);
 
 int rust_helper_signal_pending(struct task_struct *t)
 {

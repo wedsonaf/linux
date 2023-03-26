@@ -8,9 +8,11 @@
 use crate::types::Opaque;
 
 mod arc;
+mod condvar;
 pub mod lock;
 
 pub use arc::{Arc, ArcBorrow, UniqueArc};
+pub use condvar::CondVar;
 pub use lock::{mutex::Mutex, spinlock::SpinLock};
 
 /// Represents a lockdep class. It's a wrapper around C's `lock_class_key`.
