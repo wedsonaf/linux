@@ -126,13 +126,13 @@ mod std_vendor;
 /// # Ok::<(), Error>(())
 /// ```
 pub struct Arc<T: ?Sized> {
-    ptr: NonNull<ArcInner<T>>,
-    _p: PhantomData<ArcInner<T>>,
+    ptr: NonNull<WithRef<T>>,
+    _p: PhantomData<WithRef<T>>,
 }
 
 #[pin_data]
 #[repr(C)]
-struct ArcInner<T: ?Sized> {
+struct WithRef<T: ?Sized> {
     refcount: Opaque<bindings::refcount_t>,
     data: T,
 }
@@ -164,7 +164,7 @@ impl<T> Arc<T> {
     /// Constructs a new reference counted instance of `T`.
     pub fn try_new(contents: T) -> Result<Self, AllocError> {
         // INVARIANT: The refcount is initialised to a non-zero value.
-        let value = ArcInner {
+        let value = WithRef {
             // SAFETY: There are no safety requirements for this FFI call.
             refcount: Opaque::new(unsafe { bindings::REFCOUNT_INIT(1) }),
             data: contents,
@@ -201,13 +201,13 @@ impl<T> Arc<T> {
 }
 
 impl<T: ?Sized> Arc<T> {
-    /// Constructs a new [`Arc`] from an existing [`ArcInner`].
+    /// Constructs a new [`Arc`] from an existing [`WithRef`].
     ///
     /// # Safety
     ///
     /// The caller must ensure that `inner` points to a valid location and has a non-zero reference
     /// count, one of which will be owned by the new [`Arc`] instance.
-    unsafe fn from_inner(inner: NonNull<ArcInner<T>>) -> Self {
+    unsafe fn from_inner(inner: NonNull<WithRef<T>>) -> Self {
         // INVARIANT: By the safety requirements, the invariants hold.
         Arc {
             ptr: inner,
@@ -243,7 +243,7 @@ impl<T: 'static> ForeignOwnable for Arc<T> {
     unsafe fn borrow<'a>(ptr: *const core::ffi::c_void) -> ArcBorrow<'a, T> {
         // SAFETY: By the safety requirement of this function, we know that `ptr` came from
         // a previous call to `Arc::into_foreign`.
-        let inner = NonNull::new(ptr as *mut ArcInner<T>).unwrap();
+        let inner = NonNull::new(ptr as *mut WithRef<T>).unwrap();
 
         // SAFETY: The safety requirements of `from_foreign` ensure that the object remains alive
         // for the lifetime of the returned value.
@@ -376,7 +376,7 @@ impl<T: ?Sized> From<Pin<UniqueArc<T>>> for Arc<T> {
 /// # Ok::<(), Error>(())
 /// ```
 pub struct ArcBorrow<'a, T: ?Sized + 'a> {
-    inner: NonNull<ArcInner<T>>,
+    inner: NonNull<WithRef<T>>,
     _p: PhantomData<&'a ()>,
 }
 
@@ -406,7 +406,7 @@ impl<T: ?Sized> ArcBorrow<'_, T> {
     /// Callers must ensure the following for the lifetime of the returned [`ArcBorrow`] instance:
     /// 1. That `inner` remains valid;
     /// 2. That no mutable references to `inner` are created.
-    unsafe fn new(inner: NonNull<ArcInner<T>>) -> Self {
+    unsafe fn new(inner: NonNull<WithRef<T>>) -> Self {
         // INVARIANT: The safety requirements guarantee the invariants.
         Self {
             inner,
