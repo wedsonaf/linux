@@ -15,6 +15,7 @@
 #![feature(allocator_api)]
 #![feature(coerce_unsized)]
 #![feature(dispatch_from_dyn)]
+#![feature(impl_trait_in_assoc_type)]
 #![feature(new_uninit)]
 #![feature(receiver_trait)]
 #![feature(unsize)]
@@ -58,7 +59,7 @@ const __LOG_PREFIX: &[u8] = b"rust_kernel\0";
 /// The top level entrypoint to implementing a kernel module.
 ///
 /// For any teardown or cleanup operations, your type may implement [`Drop`].
-pub trait Module: Sized + Sync {
+pub trait Module: Sized + Sync + Send {
     /// Called at module initialization time.
     ///
     /// Use this method to perform whatever setup or registration your module
@@ -66,6 +67,34 @@ pub trait Module: Sized + Sync {
     ///
     /// Equivalent to the `module_init` macro in the C API.
     fn init(module: &'static ThisModule) -> error::Result<Self>;
+}
+
+/// A module that is pinned and initialised in-place.
+pub trait InPlaceModule: Sync + Send {
+    /// The type that implements the pinned initialisation of the module.
+    type Init: init::PinInit<Self, error::Error>;
+
+    /// Creates an initialiser for the module.
+    ///
+    /// It is called when the module is loaded.
+    fn init(module: &'static ThisModule) -> error::Result<Self::Init>;
+}
+
+impl<T: Module> InPlaceModule for T {
+    type Init = impl init::PinInit<Self, error::Error>;
+
+    fn init(module: &'static ThisModule) -> error::Result<Self::Init> {
+        let m = <Self as Module>::init(module)?;
+
+        let initer = move |slot: *mut Self| {
+            // SAFETY: `slot` is valid for write per the contract with `pin_init_from_closure`.
+            unsafe { slot.write(m) };
+            Ok(())
+        };
+
+        // SAFETY: On success, `initer` always fully initialises an instance of `Self`.
+        Ok(unsafe { init::pin_init_from_closure(initer) })
+    }
 }
 
 /// Equivalent to `THIS_MODULE` in the C API.
