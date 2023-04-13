@@ -87,32 +87,34 @@ macro_rules! new_mutex {
 pub type Mutex<T> = super::Lock<T, MutexBackend>;
 
 /// A kernel `struct mutex` lock backend.
-pub struct MutexBackend;
+#[repr(transparent)]
+pub struct MutexBackend(bindings::mutex);
 
-// SAFETY: The underlying kernel `struct mutex` object ensures mutual exclusion.
-unsafe impl super::Backend for MutexBackend {
-    type State = bindings::mutex;
-    type GuardState = ();
-
+unsafe impl super::Initer for MutexBackend {
     unsafe fn init(
-        ptr: *mut Self::State,
+        ptr: *mut Self,
         name: *const core::ffi::c_char,
         key: *mut bindings::lock_class_key,
     ) {
         // SAFETY: The safety requirements ensure that `ptr` is valid for writes, and `name` and
         // `key` are valid for read indefinitely.
-        unsafe { bindings::__mutex_init(ptr, name, key) }
+        unsafe { bindings::__mutex_init(ptr.cast(), name, key) }
     }
+}
 
-    unsafe fn lock(ptr: *mut Self::State) -> Self::GuardState {
+// SAFETY: The underlying kernel `struct mutex` object ensures mutual exclusion.
+unsafe impl super::Backend for MutexBackend {
+    type GuardState = ();
+
+    unsafe fn lock(ptr: *mut Self) -> Self::GuardState {
         // SAFETY: The safety requirements of this function ensure that `ptr` points to valid
         // memory, and that it has been initialised before.
-        unsafe { bindings::mutex_lock(ptr) };
+        unsafe { bindings::mutex_lock(ptr.cast()) };
     }
 
-    unsafe fn unlock(ptr: *mut Self::State, _guard_state: &Self::GuardState) {
+    unsafe fn unlock(ptr: *mut Self, _guard_state: &Self::GuardState) {
         // SAFETY: The safety requirements of this function ensure that `ptr` is valid and that the
         // caller is the owner of the mutex.
-        unsafe { bindings::mutex_unlock(ptr) };
+        unsafe { bindings::mutex_unlock(ptr.cast()) };
     }
 }
