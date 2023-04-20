@@ -12,6 +12,7 @@ use core::{cell::UnsafeCell, marker::PhantomData, marker::PhantomPinned};
 use macros::pin_data;
 
 pub mod mutex;
+pub mod rwsem;
 pub mod spinlock;
 
 /// A lock initialiser.

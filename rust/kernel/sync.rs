@@ -14,7 +14,7 @@ mod locked_by;
 
 pub use arc::{Arc, ArcBorrow, UniqueArc};
 pub use condvar::CondVar;
-pub use lock::{mutex::Mutex, spinlock::SpinLock};
+pub use lock::{mutex::Mutex, rwsem::RwSemaphore, spinlock::SpinLock};
 pub use locked_by::LockedBy;
 
 /// Represents a lockdep class. It's a wrapper around C's `lock_class_key`.
