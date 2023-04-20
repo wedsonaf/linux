@@ -6,7 +6,8 @@
 //! spinlocks, raw spinlocks) to be provided with minimal effort.
 
 use super::LockClassKey;
-use crate::{bindings, init::PinInit, pin_init, str::CStr, types::Opaque, types::ScopeGuard};
+use crate::types::{Bool, False, Opaque, ScopeGuard, True};
+use crate::{bindings, init::PinInit, pin_init, str::CStr};
 use core::{cell::UnsafeCell, marker::PhantomData, marker::PhantomPinned};
 use macros::pin_data;
 
@@ -33,13 +34,28 @@ pub unsafe trait Initer {
 }
 
 /// Marker trait for information about [`Backend`] implementations.
-pub trait BackendInfo {}
-impl BackendInfo for () {}
+pub trait BackendInfo {
+    /// Determines if the [`Guard`] should implement [`DerefMut`](core::ops::DerefMut).
+    type Writable: Bool;
+}
+
+impl BackendInfo for () {
+    type Writable = True;
+}
 
 /// A backend info that specifies that a backend saves the irq state before locking and restores it
 /// after unlocking.
 pub struct IrqSave;
-impl BackendInfo for IrqSave {}
+impl BackendInfo for IrqSave {
+    type Writable = True;
+}
+
+/// A backend info that specifies that a backend is a read-lock, i.e., there can be multiple
+/// concurrent readers but no writers while it's locked.
+pub struct ReadOnly;
+impl BackendInfo for ReadOnly {
+    type Writable = False;
+}
 
 /// The "backend" of a lock.
 ///
@@ -140,6 +156,18 @@ impl<T: ?Sized, B: Backend> Lock<T, B> {
         unsafe { Guard::new(self, state) }
     }
 
+    /// Acquires the lock read mode and gives caller (read-only) access to the data protected by it.
+    pub fn read_lock(&self) -> Guard<'_, T, B, ReadOnly>
+    where
+        B: Backend<ReadOnly>,
+    {
+        // SAFETY: The constructor of the type calls `init`, so the existence of the object proves
+        // that `init` was called.
+        let state = unsafe { <B as Backend<ReadOnly>>::lock(self.state.get()) };
+        // SAFETY: The lock was just acquired.
+        unsafe { Guard::new(self, state) }
+    }
+
     /// Acquires the lock and gives the caller access to the data protected by it.
     ///
     /// Before acquiring the lock, it disables interrupts. When the guard is dropped, the interrupt
@@ -195,7 +223,7 @@ impl<T: ?Sized, B: Backend + Backend<I>, I: BackendInfo> core::ops::Deref for Gu
     }
 }
 
-impl<T: ?Sized, B: Backend + Backend<I>, I: BackendInfo> core::ops::DerefMut
+impl<T: ?Sized, B: Backend + Backend<I>, I: BackendInfo<Writable = True>> core::ops::DerefMut
     for Guard<'_, T, B, I>
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
