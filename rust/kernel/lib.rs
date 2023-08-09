@@ -34,6 +34,7 @@ mod allocator;
 mod build_assert;
 pub mod error;
 pub mod folio;
+pub mod fs;
 pub mod init;
 pub mod ioctl;
 pub mod prelude;

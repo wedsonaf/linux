@@ -195,6 +195,37 @@ void rust_helper_kunmap_local(const void *vaddr)
 }
 EXPORT_SYMBOL_GPL(rust_helper_kunmap_local);
 
+void *rust_helper_alloc_inode_sb(struct super_block *sb,
+				 struct kmem_cache *cache, gfp_t gfp)
+{
+	return alloc_inode_sb(sb, cache, gfp);
+}
+EXPORT_SYMBOL_GPL(rust_helper_alloc_inode_sb);
+
+void rust_helper_i_uid_write(struct inode *inode, uid_t uid)
+{
+	i_uid_write(inode, uid);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i_uid_write);
+
+void rust_helper_i_gid_write(struct inode *inode, gid_t gid)
+{
+	i_gid_write(inode, gid);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i_gid_write);
+
+void rust_helper_mapping_set_large_folios(struct address_space *mapping)
+{
+	mapping_set_large_folios(mapping);
+}
+EXPORT_SYMBOL_GPL(rust_helper_mapping_set_large_folios);
+
+unsigned int rust_helper_MKDEV(unsigned int major, unsigned int minor)
+{
+	return MKDEV(major, minor);
+}
+EXPORT_SYMBOL_GPL(rust_helper_MKDEV);
+
 /*
  * `bindgen` binds the C `size_t` type as the Rust `usize` type, so we can
  * use it in contexts where Rust expects a `usize` like slice (array) indices.
