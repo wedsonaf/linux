@@ -317,6 +317,19 @@ source "fs/ufs/Kconfig"
 source "fs/erofs/Kconfig"
 source "fs/vboxsf/Kconfig"
 
+config TAR_FS
+	tristate "TAR file system support"
+	depends on BLOCK
+	help
+	  This is a very small read-only file system intended for mounting
+	  tar files that have had an index appened to it.
+
+	  To compile this file system support as a module, choose M here: the
+	  module will be called tar.
+
+	  If you don't know whether you need it, then you don't need it:
+	  answer N.
+
 endif # MISC_FILESYSTEMS
 
 menuconfig NETWORK_FILESYSTEMS
