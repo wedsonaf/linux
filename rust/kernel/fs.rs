@@ -6,6 +6,11 @@
 //!
 //! C headers: [`include/linux/fs.h`](../../include/linux/fs.h)
 
+pub mod buffer;
+
+pub use bindings::MAX_LFS_FILESIZE;
+pub use bindings::{S_IFBLK, S_IFCHR, S_IFDIR, S_IFIFO, S_IFLNK, S_IFMT, S_IFREG, S_IFSOCK};
+
 /// Read-only file systems.
 pub mod ro {
     use crate::error::{code::*, from_result, to_result, Error, Result};
@@ -94,6 +99,25 @@ pub mod ro {
         Wht = bindings::DT_WHT,
     }
 
+    impl core::convert::TryFrom<u32> for DirEntryType {
+        type Error = crate::error::Error;
+
+        fn try_from(v: u32) -> Result<Self> {
+            match v {
+                v if v == Self::Unknown as u32 => Ok(Self::Unknown),
+                v if v == Self::Fifo as u32 => Ok(Self::Fifo),
+                v if v == Self::Chr as u32 => Ok(Self::Chr),
+                v if v == Self::Dir as u32 => Ok(Self::Dir),
+                v if v == Self::Blk as u32 => Ok(Self::Blk),
+                v if v == Self::Reg as u32 => Ok(Self::Reg),
+                v if v == Self::Lnk as u32 => Ok(Self::Lnk),
+                v if v == Self::Sock as u32 => Ok(Self::Sock),
+                v if v == Self::Wht as u32 => Ok(Self::Wht),
+                _ => Err(EDOM),
+            }
+        }
+    }
+
     struct MemCache {
         ptr: *mut bindings::kmem_cache,
     }
@@ -132,6 +156,8 @@ pub mod ro {
 
     impl Drop for MemCache {
         fn drop(&mut self) {
+            // SAFETY: Just an FFI call with no additional safety requirements.
+            unsafe { bindings::rcu_barrier() };
             unsafe { bindings::kmem_cache_destroy(self.ptr) };
         }
     }
@@ -259,6 +285,11 @@ pub mod ro {
             let outerp = container_of!(self.0.get(), INodeWithData<T::INodeData>, inode);
             unsafe { &*(*outerp).data.as_ptr() }
         }
+
+        /// Returns the size of the inode contents.
+        pub fn size(&self) -> i64 {
+            unsafe { bindings::i_size_read(self.0.get()) }
+        }
     }
 
     // SAFETY: The type invariants guarantee that `INode` is always ref-counted.
@@ -329,7 +360,7 @@ pub mod ro {
                         bindings::init_special_inode(
                             inode,
                             bindings::S_IFCHR as _,
-                            bindings::MKDEV(major, minor),
+                            bindings::MKDEV(major, minor & bindings::MINORMASK),
                         )
                     };
                     bindings::S_IFCHR
@@ -339,7 +370,7 @@ pub mod ro {
                         bindings::init_special_inode(
                             inode,
                             bindings::S_IFBLK as _,
-                            bindings::MKDEV(major, minor),
+                            bindings::MKDEV(major, minor & bindings::MINORMASK),
                         )
                     };
                     bindings::S_IFBLK
@@ -403,11 +434,82 @@ pub mod ro {
                 })))
             }
         }
+
+        /// Reads a block from the block device.
+        pub fn bread(&self, block: u64) -> Result<ARef<super::buffer::Head>> {
+            // Fail requests for non-blockdev file systems. This is a compile-time check.
+            match T::SUPER_TYPE {
+                Super::BlockDev => {}
+                _ => return Err(EIO),
+            }
+
+            let ptr =
+                ptr::NonNull::new(unsafe { bindings::sb_bread(self.0.get(), block) }).ok_or(EIO)?;
+            // SAFETY: `sb_bread` returns a referenced buffer head. Ownership of the increment is
+            // passed to the `ARef` instance.
+            Ok(unsafe { ARef::from_raw(ptr.cast()) })
+        }
+
+        /// Reads `size` bytes starting from `offset` bytes.
+        ///
+        /// Returns an iterator that returns slices based on blocks.
+        pub fn read(
+            &self,
+            offset: u64,
+            size: u64,
+        ) -> Result<impl Iterator<Item = Result<super::buffer::View>> + '_> {
+            struct BlockIter<'a, T: Type + ?Sized> {
+                sb: &'a SuperBlock<T>,
+                next_offset: u64,
+                end: u64,
+            }
+            impl<'a, T: Type + ?Sized> Iterator for BlockIter<'a, T> {
+                type Item = Result<super::buffer::View>;
+
+                fn next(&mut self) -> Option<Self::Item> {
+                    if self.next_offset >= self.end {
+                        return None;
+                    }
+
+                    let block_size = unsafe { (*self.sb.0.get()).s_blocksize };
+                    let bh = match self.sb.bread(self.next_offset / block_size) {
+                        Ok(bh) => bh,
+                        Err(e) => return Some(Err(e)),
+                    };
+                    let boffset = self.next_offset & (block_size - 1);
+                    let bsize = core::cmp::min(self.end - self.next_offset, block_size - boffset);
+                    self.next_offset += bsize;
+                    Some(Ok(super::buffer::View::new(
+                        bh,
+                        boffset as usize,
+                        bsize as usize,
+                    )))
+                }
+            }
+            Ok(BlockIter {
+                sb: self,
+                next_offset: offset,
+                end: offset.checked_add(size).ok_or(ERANGE)?,
+            })
+        }
+
+        /// Returns the number of sectors in the underlying block device.
+        pub fn sector_count(&self) -> Result<u64> {
+            // Fail requests for non-blockdev file systems. This is a compile-time check.
+            match T::SUPER_TYPE {
+                Super::BlockDev => Ok(unsafe { bindings::bdev_nr_sectors((*self.0.get()).s_bdev) }),
+                _ => Err(EIO),
+            }
+        }
     }
 
     /// State of [`NewSuperBlock`] that indicates that [`NewSuperBlock::init`] needs to be called
     /// eventually.
     pub struct NeedsInit;
+
+    /// State of [`NewSuperBlock`] that indicates that [`NewSuperBlock::init_data`] needs to be
+    /// called eventually.
+    pub struct NeedsData;
 
     /// State of [`NewSuperBlock`] that indicates that [`NewSuperBlock::init_root`] needs to be
     /// called eventually.
@@ -544,8 +646,8 @@ pub mod ro {
             }
         }
 
-        /// Initialises the superblock so that it transitions to the [`NeedsRoot`] type state.
-        pub fn init(self, params: &SuperParams) -> Result<NewSuperBlock<'a, T, NeedsRoot>> {
+        /// Initialises the superblock so that it transitions to the [`NeedsData`] type state.
+        pub fn init(self, params: &SuperParams) -> Result<NewSuperBlock<'a, T, NeedsData>> {
             // SAFETY: Since this is a new super block, we hold the only reference to it.
             let sb = unsafe { &mut *self.sb.0.get() };
 
@@ -568,18 +670,43 @@ pub mod ro {
         }
     }
 
-    impl<'a, T: Type + ?Sized> NewSuperBlock<'a, T, NeedsRoot> {
-        /// Initialises the root of the superblock.
-        pub fn init_root(self, data: T::Data, inode: ARef<INode<T>>) -> Result<&'a SuperBlock<T>> {
-            // SAFETY: The inode is referenced, so it is safe to read the read-only field `i_sb`.
-            if unsafe { (*inode.0.get()).i_sb } != self.sb.0.get() {
-                return Err(EINVAL);
-            }
-
+    impl<'a, T: Type + ?Sized> NewSuperBlock<'a, T, NeedsData> {
+        /// Initialises the superblock data.
+        pub fn init_data(self, data: T::Data) -> Result<NewSuperBlock<'a, T, NeedsRoot>> {
             let data_ptr = data.into_foreign();
             let guard = ScopeGuard::new(|| {
                 unsafe { T::Data::from_foreign(data_ptr) };
             });
+
+            // SAFETY: Since this is a new superblock, we hold the only reference to it.
+            let sb = unsafe { &mut *self.sb.0.get() };
+            sb.s_fs_info = data_ptr.cast_mut();
+            guard.dismiss();
+
+            Ok(NewSuperBlock {
+                sb: self.sb,
+                _p: PhantomData,
+            })
+        }
+
+        /// Reads a block from the block device.
+        pub fn bread(&self, block: u64) -> Result<ARef<super::buffer::Head>> {
+            self.sb.bread(block)
+        }
+
+        /// Returns the number of sectors in the underlying block device.
+        pub fn sector_count(&self) -> Result<u64> {
+            self.sb.sector_count()
+        }
+    }
+
+    impl<'a, T: Type + ?Sized> NewSuperBlock<'a, T, NeedsRoot> {
+        /// Initialises the root of the superblock.
+        pub fn init_root(self, inode: ARef<INode<T>>) -> Result<&'a SuperBlock<T>> {
+            // SAFETY: The inode is referenced, so it is safe to read the read-only field `i_sb`.
+            if unsafe { (*inode.0.get()).i_sb } != self.sb.0.get() {
+                return Err(EINVAL);
+            }
 
             // SAFETY: The caller owns a reference to the inode, so it is valid. The reference is
             // transferred to the callee.
@@ -591,20 +718,23 @@ pub mod ro {
             // SAFETY: Since this is a new superblock, we hold the only reference to it.
             let sb = unsafe { &mut *self.sb.0.get() };
             sb.s_root = dentry;
-            sb.s_fs_info = data_ptr.cast_mut();
-            guard.dismiss();
             Ok(self.sb)
         }
 
         /// Creates a new inode that is a directory.
-        ///
-        /// // TODO: This inode must not give access to the SuperBlock, otherwise one could call
-        /// data() on a null pointer and get undefined behaviour.
         pub fn create_inode(&self, ino: u64) -> Result<NewINode<T>> {
             match self.sb.get_or_create_inode(ino)? {
                 Either::Left(_) => Err(EEXIST),
                 Either::Right(inode) => Ok(inode),
             }
+        }
+    }
+
+    impl<'a, T: Type + ?Sized> core::ops::Deref for NewSuperBlock<'a, T, NeedsRoot> {
+        type Target = SuperBlock<T>;
+
+        fn deref(&self) -> &Self::Target {
+            self.sb
         }
     }
 
@@ -653,6 +783,8 @@ pub mod ro {
             } else {
                 None
             },
+            // TODO: If we have a zero-sized type with a Drop implementation, we want to implement
+            // destroy_inode.
             destroy_inode: if size_of::<T::INodeData>() != 0 {
                 Some(Self::destroy_inode_callback)
             } else {

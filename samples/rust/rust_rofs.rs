@@ -26,7 +26,7 @@ impl fs::ro::Type for RoFs {
     const NAME: &'static CStr = c_str!("rust-fs");
 
     fn fill_super(sb: NewSuperBlock<'_, Self>) -> Result<&SuperBlock<Self>> {
-        let sb = sb.init(&SuperParams::DEFAULT)?;
+        let sb = sb.init(&SuperParams::DEFAULT)?.init_data(())?;
         let root = sb.create_inode(1)?.init(INodeParams {
             typ: INodeType::Dir,
             mode: 0o555,
@@ -40,7 +40,7 @@ impl fs::ro::Type for RoFs {
             atime: Time { secs: 0, nsecs: 0 },
             value: (),
         })?;
-        sb.init_root((), root)
+        sb.init_root(root)
     }
 
     fn read_dir(

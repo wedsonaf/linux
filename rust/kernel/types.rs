@@ -395,3 +395,48 @@ pub enum Either<L, R> {
     /// Constructs an instance of [`Either`] containing a value of type `R`.
     Right(R),
 }
+
+/// A type that can be represented in little-endian bytes.
+pub trait LittleEndian {
+    /// Converts to little-endian encoding.
+    fn to_le(self) -> Self;
+
+    /// Converts from little-endian enconding.
+    fn from_le(self) -> Self;
+}
+
+macro_rules! define_le {
+    ($($t:ty),+) => {
+        $(
+        impl LittleEndian for $t {
+            fn to_le(self) -> Self {
+                Self::to_le(self)
+            }
+
+            fn from_le(self) -> Self {
+                Self::from_le(self)
+            }
+        }
+        )*
+    };
+}
+
+define_le!(u16, u32, u64);
+
+/// A little-endian representation of `T`.
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct LE<T: LittleEndian + Copy>(T);
+
+impl<T: LittleEndian + Copy> LE<T> {
+    /// Returns the native-endian value.
+    pub fn value(&self) -> T {
+        self.0.from_le()
+    }
+}
+
+impl<T: LittleEndian + Copy> core::convert::From<T> for LE<T> {
+    fn from(value: T) -> LE<T> {
+        LE(value.to_le())
+    }
+}

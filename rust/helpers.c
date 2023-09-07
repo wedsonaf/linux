@@ -20,6 +20,8 @@
  * Sorted alphabetically.
  */
 
+#include <linux/blkdev.h>
+#include <linux/buffer_head.h>
 #include <linux/bug.h>
 #include <linux/build_bug.h>
 #include <linux/cacheflush.h>
@@ -214,6 +216,12 @@ void rust_helper_i_gid_write(struct inode *inode, gid_t gid)
 }
 EXPORT_SYMBOL_GPL(rust_helper_i_gid_write);
 
+off_t rust_helper_i_size_read(const struct inode *inode)
+{
+	return i_size_read(inode);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i_size_read);
+
 void rust_helper_mapping_set_large_folios(struct address_space *mapping)
 {
 	mapping_set_large_folios(mapping);
@@ -225,6 +233,31 @@ unsigned int rust_helper_MKDEV(unsigned int major, unsigned int minor)
 	return MKDEV(major, minor);
 }
 EXPORT_SYMBOL_GPL(rust_helper_MKDEV);
+
+struct buffer_head *rust_helper_sb_bread(struct super_block *sb,
+		sector_t block)
+{
+	return sb_bread(sb, block);
+}
+EXPORT_SYMBOL_GPL(rust_helper_sb_bread);
+
+void rust_helper_get_bh(struct buffer_head *bh)
+{
+	get_bh(bh);
+}
+EXPORT_SYMBOL_GPL(rust_helper_get_bh);
+
+void rust_helper_put_bh(struct buffer_head *bh)
+{
+	put_bh(bh);
+}
+EXPORT_SYMBOL_GPL(rust_helper_put_bh);
+
+sector_t rust_helper_bdev_nr_sectors(struct block_device *bdev)
+{
+	return bdev_nr_sectors(bdev);
+}
+EXPORT_SYMBOL_GPL(rust_helper_bdev_nr_sectors);
 
 /*
  * `bindgen` binds the C `size_t` type as the Rust `usize` type, so we can

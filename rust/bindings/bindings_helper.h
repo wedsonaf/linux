@@ -6,6 +6,7 @@
  * Sorted alphabetically.
  */
 
+#include <linux/buffer_head.h>
 #include <linux/errname.h>
 #include <linux/fs.h>
 #include <linux/fs_context.h>
@@ -22,6 +23,7 @@ const gfp_t BINDINGS___GFP_ZERO = __GFP_ZERO;
 
 const slab_flags_t BINDINGS_SLAB_RECLAIM_ACCOUNT = SLAB_RECLAIM_ACCOUNT;
 const slab_flags_t BINDINGS_SLAB_MEM_SPREAD = SLAB_MEM_SPREAD;
+const slab_flags_t BINDINGS_SLAB_ACCOUNT = SLAB_ACCOUNT;
 
 const loff_t BINDINGS_MAX_LFS_FILESIZE = MAX_LFS_FILESIZE;
 const size_t BINDINGS_PAGE_SIZE = PAGE_SIZE;
