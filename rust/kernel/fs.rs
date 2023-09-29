@@ -7,7 +7,7 @@
 //! C headers: [`include/linux/fs.h`](../../include/linux/fs.h)
 
 use crate::error::{code::*, from_result, to_result, Error, Result};
-use crate::types::{ARef, AlwaysRefCounted, Either, Opaque};
+use crate::types::{ARef, AlwaysRefCounted, Either, ForeignOwnable, Opaque};
 use crate::{
     bindings, folio::LockedFolio, init::PinInit, str::CStr, time::Timespec, try_pin_init,
     ThisModule,
@@ -20,11 +20,14 @@ pub const MAX_LFS_FILESIZE: i64 = bindings::MAX_LFS_FILESIZE;
 
 /// A file system type.
 pub trait FileSystem {
+    /// Data associated with each file system instance (super-block).
+    type Data: ForeignOwnable + Send + Sync;
+
     /// The name of the file system type.
     const NAME: &'static CStr;
 
     /// Returns the parameters to initialise a super block.
-    fn super_params(sb: &NewSuperBlock<Self>) -> Result<SuperParams>;
+    fn super_params(sb: &NewSuperBlock<Self>) -> Result<SuperParams<Self::Data>>;
 
     /// Initialises and returns the root inode of the given superblock.
     ///
@@ -174,7 +177,7 @@ impl Registration {
                 fs.owner = module.0;
                 fs.name = T::NAME.as_char_ptr();
                 fs.init_fs_context = Some(Self::init_fs_context_callback::<T>);
-                fs.kill_sb = Some(Self::kill_sb_callback);
+                fs.kill_sb = Some(Self::kill_sb_callback::<T>);
                 fs.fs_flags = 0;
 
                 // SAFETY: Pointers stored in `fs` are static so will live for as long as the
@@ -195,10 +198,22 @@ impl Registration {
         })
     }
 
-    unsafe extern "C" fn kill_sb_callback(sb_ptr: *mut bindings::super_block) {
+    unsafe extern "C" fn kill_sb_callback<T: FileSystem + ?Sized>(
+        sb_ptr: *mut bindings::super_block,
+    ) {
         // SAFETY: In `get_tree_callback` we always call `get_tree_nodev`, so `kill_anon_super` is
         // the appropriate function to call for cleanup.
         unsafe { bindings::kill_anon_super(sb_ptr) };
+
+        // SAFETY: The C API contract guarantees that `sb_ptr` is valid for read.
+        let ptr = unsafe { (*sb_ptr).s_fs_info };
+        if !ptr.is_null() {
+            // SAFETY: The only place where `s_fs_info` is assigned is `NewSuperBlock::init`, where
+            // it's initialised with the result of an `into_foreign` call. We checked above that
+            // `ptr` is non-null because it would be null if we never reached the point where we
+            // init the field.
+            unsafe { T::Data::from_foreign(ptr) };
+        }
     }
 }
 
@@ -429,6 +444,14 @@ pub struct INodeParams {
 pub struct SuperBlock<T: FileSystem + ?Sized>(Opaque<bindings::super_block>, PhantomData<T>);
 
 impl<T: FileSystem + ?Sized> SuperBlock<T> {
+    /// Returns the data associated with the superblock.
+    pub fn data(&self) -> <T::Data as ForeignOwnable>::Borrowed<'_> {
+        // SAFETY: This method is only available after the `NeedsData` typestate, so `s_fs_info`
+        // has been initialised initialised with the result of a call to `T::into_foreign`.
+        let ptr = unsafe { (*self.0.get()).s_fs_info };
+        unsafe { T::Data::borrow(ptr) }
+    }
+
     /// Tries to get an existing inode or create a new one if it doesn't exist yet.
     pub fn get_or_create_inode(&self, ino: Ino) -> Result<Either<ARef<INode<T>>, NewINode<T>>> {
         // SAFETY: The only initialisation missing from the superblock is the root, and this
@@ -458,7 +481,7 @@ impl<T: FileSystem + ?Sized> SuperBlock<T> {
 /// Required superblock parameters.
 ///
 /// This is returned by implementations of [`FileSystem::super_params`].
-pub struct SuperParams {
+pub struct SuperParams<T: ForeignOwnable + Send + Sync> {
     /// The magic number of the superblock.
     pub magic: u32,
 
@@ -472,6 +495,9 @@ pub struct SuperParams {
 
     /// Granularity of c/m/atime in ns (cannot be worse than a second).
     pub time_gran: u32,
+
+    /// Data to be associated with the superblock.
+    pub data: T,
 }
 
 /// A superblock that is still being initialised.
@@ -521,6 +547,9 @@ impl<T: FileSystem + ?Sized> Tables<T> {
             }
             sb.0.s_blocksize = 1 << sb.0.s_blocksize_bits;
             sb.0.s_flags |= bindings::SB_RDONLY;
+
+            // N.B.: Even on failure, `kill_sb` is called and frees the data.
+            sb.0.s_fs_info = params.data.into_foreign().cast_mut();
 
             // SAFETY: The callback contract guarantees that `sb_ptr` is a unique pointer to a
             // newly-created (and initialised above) superblock.
@@ -934,8 +963,9 @@ impl<T: FileSystem + ?Sized + Sync + Send> crate::InPlaceModule for Module<T> {
 ///
 /// struct MyFs;
 /// impl fs::FileSystem for MyFs {
+///     type Data = ();
 ///     const NAME: &'static CStr = c_str!("myfs");
-///     fn super_params(_: &NewSuperBlock<Self>) -> Result<SuperParams> {
+///     fn super_params(_: &NewSuperBlock<Self>) -> Result<SuperParams<Self::Data>> {
 ///         todo!()
 ///     }
 ///     fn init_root(_sb: &SuperBlock<Self>) -> Result<ARef<INode<Self>>> {

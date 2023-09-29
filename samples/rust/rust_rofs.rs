@@ -52,14 +52,16 @@ const ENTRIES: [Entry; 4] = [
 
 struct RoFs;
 impl fs::FileSystem for RoFs {
+    type Data = ();
     const NAME: &'static CStr = c_str!("rust-fs");
 
-    fn super_params(_sb: &NewSuperBlock<Self>) -> Result<SuperParams> {
+    fn super_params(_sb: &NewSuperBlock<Self>) -> Result<SuperParams<Self::Data>> {
         Ok(SuperParams {
             magic: 0x52555354,
             blocksize_bits: 12,
             maxbytes: fs::MAX_LFS_FILESIZE,
             time_gran: 1,
+            data: (),
         })
     }
 
