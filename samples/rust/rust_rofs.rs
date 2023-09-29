@@ -89,4 +89,29 @@ impl fs::FileSystem for RoFs {
 
         Ok(())
     }
+
+    fn lookup(parent: &INode<Self>, name: &[u8]) -> Result<ARef<INode<Self>>> {
+        if parent.ino() != 1 {
+            return Err(ENOENT);
+        }
+
+        match name {
+            b"subdir" => match parent.super_block().get_or_create_inode(2)? {
+                Either::Left(existing) => Ok(existing),
+                Either::Right(new) => new.init(INodeParams {
+                    typ: INodeType::Dir,
+                    mode: 0o555,
+                    size: 0,
+                    blocks: 1,
+                    nlink: 2,
+                    uid: 0,
+                    gid: 0,
+                    atime: UNIX_EPOCH,
+                    ctime: UNIX_EPOCH,
+                    mtime: UNIX_EPOCH,
+                }),
+            },
+            _ => Err(ENOENT),
+        }
+    }
 }

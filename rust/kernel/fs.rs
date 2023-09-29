@@ -33,6 +33,9 @@ pub trait FileSystem {
     ///
     /// [`DirEmitter::pos`] holds the current position of the directory reader.
     fn read_dir(inode: &INode<Self>, emitter: &mut DirEmitter) -> Result;
+
+    /// Returns the inode corresponding to the directory entry with the given name.
+    fn lookup(parent: &INode<Self>, name: &[u8]) -> Result<ARef<INode<Self>>>;
 }
 
 /// The types of directory entries reported by [`FileSystem::read_dir`].
@@ -226,8 +229,7 @@ impl<T: FileSystem + ?Sized> NewINode<T> {
         let mode = match params.typ {
             INodeType::Dir => {
                 inode.__bindgen_anon_3.i_fop = &Tables::<T>::DIR_FILE_OPERATIONS;
-                // SAFETY: `simple_dir_inode_operations` never changes, it's safe to reference it.
-                inode.i_op = unsafe { &bindings::simple_dir_inode_operations };
+                inode.i_op = &Tables::<T>::DIR_INODE_OPERATIONS;
                 bindings::S_IFDIR
             }
         };
@@ -530,6 +532,62 @@ impl<T: FileSystem + ?Sized> Tables<T> {
             }
         })
     }
+
+    const DIR_INODE_OPERATIONS: bindings::inode_operations = bindings::inode_operations {
+        lookup: Some(Self::lookup_callback),
+        get_link: None,
+        permission: None,
+        get_inode_acl: None,
+        readlink: None,
+        create: None,
+        link: None,
+        unlink: None,
+        symlink: None,
+        mkdir: None,
+        rmdir: None,
+        mknod: None,
+        rename: None,
+        setattr: None,
+        getattr: None,
+        listxattr: None,
+        fiemap: None,
+        update_time: None,
+        atomic_open: None,
+        tmpfile: None,
+        get_acl: None,
+        set_acl: None,
+        fileattr_set: None,
+        fileattr_get: None,
+        get_offset_ctx: None,
+    };
+
+    extern "C" fn lookup_callback(
+        parent_ptr: *mut bindings::inode,
+        dentry: *mut bindings::dentry,
+        _flags: u32,
+    ) -> *mut bindings::dentry {
+        // SAFETY: The C API guarantees that `parent_ptr` is a valid inode.
+        let parent = unsafe { &*parent_ptr.cast::<INode<T>>() };
+
+        // SAFETY: The C API guarantees that `dentry` is valid for read. Since the name is
+        // immutable, it's ok to read its length directly.
+        let len = unsafe { (*dentry).d_name.__bindgen_anon_1.__bindgen_anon_1.len };
+        let Ok(name_len) = usize::try_from(len) else {
+            return ENOENT.to_ptr();
+        };
+
+        // SAFETY: The C API guarantees that `dentry` is valid for read. Since the name is
+        // immutable, it's ok to read it directly.
+        let name = unsafe { core::slice::from_raw_parts((*dentry).d_name.name, name_len) };
+        match T::lookup(parent, name) {
+            Err(e) => e.to_ptr(),
+            // SAFETY: The returned inode is valid and referenced (by the type invariants), so
+            // it is ok to transfer this increment to `d_splice_alias`.
+            Ok(inode) => unsafe {
+                bindings::d_splice_alias(ManuallyDrop::new(inode).0.get(), dentry)
+            },
+        }
+    }
 }
 
 /// Directory entry emitter.
@@ -635,6 +693,9 @@ impl<T: FileSystem + ?Sized + Sync + Send> crate::InPlaceModule for Module<T> {
 ///         todo!()
 ///     }
 ///     fn read_dir(_: &INode<Self>, _: &mut DirEmitter) -> Result {
+///         todo!()
+///     }
+///     fn lookup(_: &INode<Self>, _: &[u8]) -> Result<ARef<INode<Self>>> {
 ///         todo!()
 ///     }
 /// }
