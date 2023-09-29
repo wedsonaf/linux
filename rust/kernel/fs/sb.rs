@@ -10,19 +10,37 @@ use super::inode::{self, INode, Ino};
 use super::{FileSystem, Offset};
 use crate::bindings;
 use crate::error::{code::*, Result};
-use crate::types::{ARef, Either, Opaque};
+use crate::types::{ARef, Either, ForeignOwnable, Opaque};
 use core::{marker::PhantomData, ptr};
+
+/// A typestate for [`SuperBlock`] that indicates that it's a new one, so not fully initialized
+/// yet.
+pub struct New;
+
+/// A typestate for [`SuperBlock`] that indicates that it's ready to be used.
+pub struct Ready;
+
+// SAFETY: Instances of `SuperBlock<T, Ready>` are only created after initialising the data.
+unsafe impl DataInited for Ready {}
+
+/// Indicates that a superblock in this typestate has data initialized.
+///
+/// # Safety
+///
+/// Implementers must ensure that `s_fs_info` is properly initialised in this state.
+#[doc(hidden)]
+pub unsafe trait DataInited {}
 
 /// A file system super block.
 ///
 /// Wraps the kernel's `struct super_block`.
 #[repr(transparent)]
-pub struct SuperBlock<T: FileSystem + ?Sized>(
+pub struct SuperBlock<T: FileSystem + ?Sized, S = Ready>(
     pub(crate) Opaque<bindings::super_block>,
-    PhantomData<T>,
+    PhantomData<(S, T)>,
 );
 
-impl<T: FileSystem + ?Sized> SuperBlock<T> {
+impl<T: FileSystem + ?Sized, S> SuperBlock<T, S> {
     /// Creates a new superblock reference from the given raw pointer.
     ///
     /// # Safety
@@ -62,10 +80,24 @@ impl<T: FileSystem + ?Sized> SuperBlock<T> {
     }
 }
 
+impl<T: FileSystem + ?Sized, S: DataInited> SuperBlock<T, S> {
+    /// Returns the data associated with the superblock.
+    pub fn data(&self) -> <T::Data as ForeignOwnable>::Borrowed<'_> {
+        if T::IS_UNSPECIFIED {
+            crate::build_error!("super block data type is unspecified");
+        }
+
+        // SAFETY: This method is only available if the typestate implements `DataInited`, whose
+        // safety requirements include `s_fs_info` being properly initialised.
+        let ptr = unsafe { (*self.0.get()).s_fs_info };
+        unsafe { T::Data::borrow(ptr) }
+    }
+}
+
 /// Required superblock parameters.
 ///
 /// This is returned by implementations of [`FileSystem::super_params`].
-pub struct Params {
+pub struct Params<T: ForeignOwnable + Send + Sync> {
     /// The magic number of the superblock.
     pub magic: u32,
 
@@ -79,4 +111,7 @@ pub struct Params {
 
     /// Granularity of c/m/atime in ns (cannot be worse than a second).
     pub time_gran: u32,
+
+    /// Data to be associated with the superblock.
+    pub data: T,
 }

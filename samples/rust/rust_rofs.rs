@@ -98,14 +98,16 @@ impl RoFs {
 }
 
 impl fs::FileSystem for RoFs {
+    type Data = ();
     const NAME: &'static CStr = c_str!("rust_rofs");
 
-    fn super_params(_sb: &sb::SuperBlock<Self>) -> Result<sb::Params> {
+    fn super_params(_sb: &sb::SuperBlock<Self, sb::New>) -> Result<sb::Params<()>> {
         Ok(sb::Params {
             magic: 0x52555354,
             blocksize_bits: 12,
             maxbytes: fs::MAX_LFS_FILESIZE,
             time_gran: 1,
+            data: (),
         })
     }
 

@@ -7,7 +7,7 @@
 //! C headers: [`include/linux/fs.h`](srctree/include/linux/fs.h)
 
 use crate::error::{code::*, from_result, to_result, Error, Result};
-use crate::types::Opaque;
+use crate::types::{ForeignOwnable, Opaque};
 use crate::{bindings, init::PinInit, str::CStr, try_pin_init, ThisModule};
 use core::{marker::PhantomData, mem::ManuallyDrop, pin::Pin, ptr};
 use dentry::DEntry;
@@ -29,6 +29,9 @@ pub const MAX_LFS_FILESIZE: Offset = bindings::MAX_LFS_FILESIZE;
 
 /// A file system type.
 pub trait FileSystem {
+    /// Data associated with each file system instance (super-block).
+    type Data: ForeignOwnable + Send + Sync;
+
     /// The name of the file system type.
     const NAME: &'static CStr;
 
@@ -39,7 +42,7 @@ pub trait FileSystem {
     const IS_UNSPECIFIED: bool = false;
 
     /// Returns the parameters to initialise a super block.
-    fn super_params(sb: &SuperBlock<Self>) -> Result<sb::Params>;
+    fn super_params(sb: &SuperBlock<Self, sb::New>) -> Result<sb::Params<Self::Data>>;
 
     /// Initialises and returns the root inode of the given superblock.
     ///
@@ -92,9 +95,10 @@ pub struct Stat {
 pub struct UnspecifiedFS;
 
 impl FileSystem for UnspecifiedFS {
+    type Data = ();
     const NAME: &'static CStr = crate::c_str!("unspecified");
     const IS_UNSPECIFIED: bool = true;
-    fn super_params(_: &SuperBlock<Self>) -> Result<sb::Params> {
+    fn super_params(_: &SuperBlock<Self, sb::New>) -> Result<sb::Params<()>> {
         Err(ENOTSUPP)
     }
     fn init_root(_: &SuperBlock<Self>) -> Result<dentry::Root<Self>> {
@@ -131,7 +135,7 @@ impl Registration {
                 fs.owner = module.0;
                 fs.name = T::NAME.as_char_ptr();
                 fs.init_fs_context = Some(Self::init_fs_context_callback::<T>);
-                fs.kill_sb = Some(Self::kill_sb_callback);
+                fs.kill_sb = Some(Self::kill_sb_callback::<T>);
                 fs.fs_flags = 0;
 
                 // SAFETY: Pointers stored in `fs` are static so will live for as long as the
@@ -152,10 +156,22 @@ impl Registration {
         })
     }
 
-    unsafe extern "C" fn kill_sb_callback(sb_ptr: *mut bindings::super_block) {
+    unsafe extern "C" fn kill_sb_callback<T: FileSystem + ?Sized>(
+        sb_ptr: *mut bindings::super_block,
+    ) {
         // SAFETY: In `get_tree_callback` we always call `get_tree_nodev`, so `kill_anon_super` is
         // the appropriate function to call for cleanup.
         unsafe { bindings::kill_anon_super(sb_ptr) };
+
+        // SAFETY: The C API contract guarantees that `sb_ptr` is valid for read.
+        let ptr = unsafe { (*sb_ptr).s_fs_info };
+        if !ptr.is_null() {
+            // SAFETY: The only place where `s_fs_info` is assigned is `NewSuperBlock::init`, where
+            // it's initialised with the result of an `into_foreign` call. We checked above that
+            // `ptr` is non-null because it would be null if we never reached the point where we
+            // init the field.
+            unsafe { T::Data::from_foreign(ptr) };
+        }
     }
 }
 
@@ -214,10 +230,17 @@ impl<T: FileSystem + ?Sized> Tables<T> {
             }
             sb.s_blocksize = 1 << sb.s_blocksize_bits;
 
-            let root = T::init_root(new_sb)?;
+            // N.B.: Even on failure, `kill_sb` is called and frees the data.
+            sb.s_fs_info = params.data.into_foreign().cast_mut();
+
+            // SAFETY: The callback contract guarantees that `sb_ptr` is a unique pointer to a
+            // newly-created (and initialised above) superblock. And we have just initialised
+            // `s_fs_info`.
+            let sb = unsafe { SuperBlock::from_raw(sb_ptr) };
+            let root = T::init_root(sb)?;
 
             // Reject root inode if it belongs to a different superblock.
-            if !ptr::eq(root.super_block(), new_sb) {
+            if !ptr::eq(root.super_block(), sb) {
                 return Err(EINVAL);
             }
 
@@ -366,8 +389,9 @@ impl<T: FileSystem + ?Sized + Sync + Send> crate::InPlaceModule for Module<T> {
 ///
 /// struct MyFs;
 /// impl fs::FileSystem for MyFs {
+///     type Data = ();
 ///     const NAME: &'static CStr = kernel::c_str!("myfs");
-///     fn super_params(_: &SuperBlock<Self>) -> Result<sb::Params> {
+///     fn super_params(_: &SuperBlock<Self, sb::New>) -> Result<sb::Params<()>> {
 ///         todo!()
 ///     }
 ///     fn init_root(_sb: &SuperBlock<Self>) -> Result<dentry::Root<Self>> {
