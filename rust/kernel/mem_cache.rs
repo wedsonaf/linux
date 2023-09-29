@@ -20,7 +20,6 @@ impl MemCache {
     /// Allocates a new `kmem_cache` for type `T`.
     ///
     /// `init` is called by the C code when entries are allocated.
-    #[allow(dead_code)]
     pub(crate) fn try_new<T>(
         name: &'static CStr,
         init: Option<unsafe extern "C" fn(*mut core::ffi::c_void)>,
@@ -43,7 +42,6 @@ impl MemCache {
     /// Returns the pointer to the `kmem_cache` instance, or null if it's `None`.
     ///
     /// This is a helper for functions like `alloc_inode_sb` where the cache is optional.
-    #[allow(dead_code)]
     pub(crate) fn ptr(c: &Option<Self>) -> *mut bindings::kmem_cache {
         match c {
             Some(m) => m.ptr.as_ptr(),

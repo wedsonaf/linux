@@ -53,6 +53,7 @@ const ENTRIES: [Entry; 4] = [
 struct RoFs;
 impl fs::FileSystem for RoFs {
     type Data = ();
+    type INodeData = &'static Entry;
     const NAME: &'static CStr = c_str!("rust-fs");
 
     fn super_params(_sb: &NewSuperBlock<Self>) -> Result<SuperParams<Self::Data>> {
@@ -79,6 +80,7 @@ impl fs::FileSystem for RoFs {
                 atime: UNIX_EPOCH,
                 ctime: UNIX_EPOCH,
                 mtime: UNIX_EPOCH,
+                value: &ENTRIES[0],
             }),
         }
     }
@@ -122,6 +124,7 @@ impl fs::FileSystem for RoFs {
                         atime: UNIX_EPOCH,
                         ctime: UNIX_EPOCH,
                         mtime: UNIX_EPOCH,
+                        value: e,
                     }),
                 };
             }
@@ -131,11 +134,7 @@ impl fs::FileSystem for RoFs {
     }
 
     fn read_folio(inode: &INode<Self>, mut folio: LockedFolio<'_>) -> Result {
-        let data = match inode.ino() {
-            2 => ENTRIES[2].contents,
-            3 => ENTRIES[3].contents,
-            _ => return Err(EINVAL),
-        };
+        let data = inode.data().contents;
 
         let pos = usize::try_from(folio.pos()).unwrap_or(usize::MAX);
         let copied = if pos >= data.len() {
