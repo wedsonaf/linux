@@ -16,6 +16,7 @@
 #include <linux/refcount.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
+#include <linux/statfs.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
 #include <linux/xattr.h>
