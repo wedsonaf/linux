@@ -2,7 +2,9 @@
 
 //! Rust read-only file system sample.
 
-use kernel::fs::{INode, INodeParams, INodeType, NewSuperBlock, SuperBlock, SuperParams};
+use kernel::fs::{
+    DirEmitter, INode, INodeParams, INodeType, NewSuperBlock, SuperBlock, SuperParams,
+};
 use kernel::prelude::*;
 use kernel::{c_str, fs, time::UNIX_EPOCH, types::ARef, types::Either};
 
@@ -13,6 +15,30 @@ kernel::module_fs! {
     description: "Rust read-only file system sample",
     license: "GPL",
 }
+
+struct Entry {
+    name: &'static [u8],
+    ino: u64,
+    etype: INodeType,
+}
+
+const ENTRIES: [Entry; 3] = [
+    Entry {
+        name: b".",
+        ino: 1,
+        etype: INodeType::Dir,
+    },
+    Entry {
+        name: b"..",
+        ino: 1,
+        etype: INodeType::Dir,
+    },
+    Entry {
+        name: b"subdir",
+        ino: 2,
+        etype: INodeType::Dir,
+    },
+];
 
 struct RoFs;
 impl fs::FileSystem for RoFs {
@@ -33,7 +59,7 @@ impl fs::FileSystem for RoFs {
             Either::Right(new) => new.init(INodeParams {
                 typ: INodeType::Dir,
                 mode: 0o555,
-                size: 1,
+                size: ENTRIES.len().try_into()?,
                 blocks: 1,
                 nlink: 2,
                 uid: 0,
@@ -43,5 +69,24 @@ impl fs::FileSystem for RoFs {
                 mtime: UNIX_EPOCH,
             }),
         }
+    }
+
+    fn read_dir(inode: &INode<Self>, emitter: &mut DirEmitter) -> Result {
+        if inode.ino() != 1 {
+            return Ok(());
+        }
+
+        let pos = emitter.pos();
+        if pos >= ENTRIES.len().try_into()? {
+            return Ok(());
+        }
+
+        for e in ENTRIES.iter().skip(pos.try_into()?) {
+            if !emitter.emit(1, e.name, e.ino, e.etype.into()) {
+                break;
+            }
+        }
+
+        Ok(())
     }
 }

@@ -28,6 +28,70 @@ pub trait FileSystem {
     /// This is called during initialisation of a superblock after [`FileSystem::super_params`] has
     /// completed successfully.
     fn init_root(sb: &SuperBlock<Self>) -> Result<ARef<INode<Self>>>;
+
+    /// Reads directory entries from directory inodes.
+    ///
+    /// [`DirEmitter::pos`] holds the current position of the directory reader.
+    fn read_dir(inode: &INode<Self>, emitter: &mut DirEmitter) -> Result;
+}
+
+/// The types of directory entries reported by [`FileSystem::read_dir`].
+#[repr(u32)]
+#[derive(Copy, Clone)]
+pub enum DirEntryType {
+    /// Unknown type.
+    Unknown = bindings::DT_UNKNOWN,
+
+    /// Named pipe (first-in, first-out) type.
+    Fifo = bindings::DT_FIFO,
+
+    /// Character device type.
+    Chr = bindings::DT_CHR,
+
+    /// Directory type.
+    Dir = bindings::DT_DIR,
+
+    /// Block device type.
+    Blk = bindings::DT_BLK,
+
+    /// Regular file type.
+    Reg = bindings::DT_REG,
+
+    /// Symbolic link type.
+    Lnk = bindings::DT_LNK,
+
+    /// Named unix-domain socket type.
+    Sock = bindings::DT_SOCK,
+
+    /// White-out type.
+    Wht = bindings::DT_WHT,
+}
+
+impl From<INodeType> for DirEntryType {
+    fn from(value: INodeType) -> Self {
+        match value {
+            INodeType::Dir => DirEntryType::Dir,
+        }
+    }
+}
+
+impl core::convert::TryFrom<u32> for DirEntryType {
+    type Error = crate::error::Error;
+
+    fn try_from(v: u32) -> Result<Self> {
+        match v {
+            v if v == Self::Unknown as u32 => Ok(Self::Unknown),
+            v if v == Self::Fifo as u32 => Ok(Self::Fifo),
+            v if v == Self::Chr as u32 => Ok(Self::Chr),
+            v if v == Self::Dir as u32 => Ok(Self::Dir),
+            v if v == Self::Blk as u32 => Ok(Self::Blk),
+            v if v == Self::Reg as u32 => Ok(Self::Reg),
+            v if v == Self::Lnk as u32 => Ok(Self::Lnk),
+            v if v == Self::Sock as u32 => Ok(Self::Sock),
+            v if v == Self::Wht as u32 => Ok(Self::Wht),
+            _ => Err(EDOM),
+        }
+    }
 }
 
 /// A registration of a file system.
@@ -161,9 +225,7 @@ impl<T: FileSystem + ?Sized> NewINode<T> {
 
         let mode = match params.typ {
             INodeType::Dir => {
-                // SAFETY: `simple_dir_operations` never changes, it's safe to reference it.
-                inode.__bindgen_anon_3.i_fop = unsafe { &bindings::simple_dir_operations };
-
+                inode.__bindgen_anon_3.i_fop = &Tables::<T>::DIR_FILE_OPERATIONS;
                 // SAFETY: `simple_dir_inode_operations` never changes, it's safe to reference it.
                 inode.i_op = unsafe { &bindings::simple_dir_inode_operations };
                 bindings::S_IFDIR
@@ -403,6 +465,126 @@ impl<T: FileSystem + ?Sized> Tables<T> {
         free_cached_objects: None,
         shutdown: None,
     };
+
+    const DIR_FILE_OPERATIONS: bindings::file_operations = bindings::file_operations {
+        owner: ptr::null_mut(),
+        llseek: Some(bindings::generic_file_llseek),
+        read: Some(bindings::generic_read_dir),
+        write: None,
+        read_iter: None,
+        write_iter: None,
+        iopoll: None,
+        iterate_shared: Some(Self::read_dir_callback),
+        poll: None,
+        unlocked_ioctl: None,
+        compat_ioctl: None,
+        mmap: None,
+        mmap_supported_flags: 0,
+        open: None,
+        flush: None,
+        release: None,
+        fsync: None,
+        fasync: None,
+        lock: None,
+        get_unmapped_area: None,
+        check_flags: None,
+        flock: None,
+        splice_write: None,
+        splice_read: None,
+        splice_eof: None,
+        setlease: None,
+        fallocate: None,
+        show_fdinfo: None,
+        copy_file_range: None,
+        remap_file_range: None,
+        fadvise: None,
+        uring_cmd: None,
+        uring_cmd_iopoll: None,
+    };
+
+    unsafe extern "C" fn read_dir_callback(
+        file: *mut bindings::file,
+        ctx_ptr: *mut bindings::dir_context,
+    ) -> core::ffi::c_int {
+        from_result(|| {
+            // SAFETY: The C API guarantees that `file` is valid for read. And since `f_inode` is
+            // immutable, we can read it directly.
+            let inode = unsafe { &*(*file).f_inode.cast::<INode<T>>() };
+
+            // SAFETY: The C API guarantees that this is the only reference to the `dir_context`
+            // instance.
+            let emitter = unsafe { &mut *ctx_ptr.cast::<DirEmitter>() };
+            let orig_pos = emitter.pos();
+
+            // Call the module implementation. We ignore errors if directory entries have been
+            // succesfully emitted: this is because we want users to see them before the error.
+            match T::read_dir(inode, emitter) {
+                Ok(_) => Ok(0),
+                Err(e) => {
+                    if emitter.pos() == orig_pos {
+                        Err(e)
+                    } else {
+                        Ok(0)
+                    }
+                }
+            }
+        })
+    }
+}
+
+/// Directory entry emitter.
+///
+/// This is used in [`FileSystem::read_dir`] implementations to report the directory entry.
+#[repr(transparent)]
+pub struct DirEmitter(bindings::dir_context);
+
+impl DirEmitter {
+    /// Returns the current position of the emitter.
+    pub fn pos(&self) -> i64 {
+        self.0.pos
+    }
+
+    /// Emits a directory entry.
+    ///
+    /// `pos_inc` is the number with which to increment the current position on success.
+    ///
+    /// `name` is the name of the entry.
+    ///
+    /// `ino` is the inode number of the entry.
+    ///
+    /// `etype` is the type of the entry.
+    ///
+    /// Returns `false` when the entry could not be emitted, possibly because the user-provided
+    /// buffer is full.
+    pub fn emit(&mut self, pos_inc: i64, name: &[u8], ino: Ino, etype: DirEntryType) -> bool {
+        let Ok(name_len) = i32::try_from(name.len()) else {
+            return false;
+        };
+
+        let Some(actor) = self.0.actor else {
+            return false;
+        };
+
+        let Some(new_pos) = self.0.pos.checked_add(pos_inc) else {
+            return false;
+        };
+
+        // SAFETY: `name` is valid at least for the duration of the `actor` call.
+        let ret = unsafe {
+            actor(
+                &mut self.0,
+                name.as_ptr().cast(),
+                name_len,
+                self.0.pos,
+                ino,
+                etype as _,
+            )
+        };
+        if ret {
+            self.0.pos = new_pos;
+        }
+        ret
+    }
 }
 
 /// Kernel module that exposes a single file system implemented by `T`.
@@ -431,7 +613,7 @@ impl<T: FileSystem + ?Sized + Sync + Send> crate::InPlaceModule for Module<T> {
 ///
 /// ```
 /// # mod module_fs_sample {
-/// use kernel::fs::{INode, NewSuperBlock, SuperBlock, SuperParams};
+/// use kernel::fs::{DirEmitter, INode, NewSuperBlock, SuperBlock, SuperParams};
 /// use kernel::prelude::*;
 /// use kernel::{c_str, fs, types::ARef};
 ///
@@ -450,6 +632,9 @@ impl<T: FileSystem + ?Sized + Sync + Send> crate::InPlaceModule for Module<T> {
 ///         todo!()
 ///     }
 ///     fn init_root(_sb: &SuperBlock<Self>) -> Result<ARef<INode<Self>>> {
+///         todo!()
+///     }
+///     fn read_dir(_: &INode<Self>, _: &mut DirEmitter) -> Result {
 ///         todo!()
 ///     }
 /// }
