@@ -23,10 +23,14 @@
 #include <kunit/test-bug.h>
 #include <linux/bug.h>
 #include <linux/build_bug.h>
+#include <linux/cacheflush.h>
 #include <linux/err.h>
 #include <linux/errname.h>
 #include <linux/fs.h>
+#include <linux/highmem.h>
+#include <linux/mm.h>
 #include <linux/mutex.h>
+#include <linux/pagemap.h>
 #include <linux/refcount.h>
 #include <linux/sched/signal.h>
 #include <linux/spinlock.h>
@@ -145,6 +149,77 @@ struct kunit *rust_helper_kunit_get_current_test(void)
 }
 EXPORT_SYMBOL_GPL(rust_helper_kunit_get_current_test);
 
+void *rust_helper_kmap(struct page *page)
+{
+	return kmap(page);
+}
+EXPORT_SYMBOL_GPL(rust_helper_kmap);
+
+void rust_helper_kunmap(struct page *page)
+{
+	kunmap(page);
+}
+EXPORT_SYMBOL_GPL(rust_helper_kunmap);
+
+void rust_helper_folio_get(struct folio *folio)
+{
+	folio_get(folio);
+}
+EXPORT_SYMBOL_GPL(rust_helper_folio_get);
+
+void rust_helper_folio_put(struct folio *folio)
+{
+	folio_put(folio);
+}
+EXPORT_SYMBOL_GPL(rust_helper_folio_put);
+
+struct page *rust_helper_folio_page(struct folio *folio, size_t n)
+{
+	return folio_page(folio, n);
+}
+
+loff_t rust_helper_folio_pos(struct folio *folio)
+{
+	return folio_pos(folio);
+}
+EXPORT_SYMBOL_GPL(rust_helper_folio_pos);
+
+size_t rust_helper_folio_size(struct folio *folio)
+{
+	return folio_size(folio);
+}
+EXPORT_SYMBOL_GPL(rust_helper_folio_size);
+
+void rust_helper_folio_mark_uptodate(struct folio *folio)
+{
+	folio_mark_uptodate(folio);
+}
+EXPORT_SYMBOL_GPL(rust_helper_folio_mark_uptodate);
+
+void rust_helper_folio_set_error(struct folio *folio)
+{
+	folio_set_error(folio);
+}
+EXPORT_SYMBOL_GPL(rust_helper_folio_set_error);
+
+void rust_helper_flush_dcache_folio(struct folio *folio)
+{
+	flush_dcache_folio(folio);
+}
+EXPORT_SYMBOL_GPL(rust_helper_flush_dcache_folio);
+
+void *rust_helper_kmap_local_folio(struct folio *folio, size_t offset)
+{
+	return kmap_local_folio(folio, offset);
+}
+EXPORT_SYMBOL_GPL(rust_helper_kmap_local_folio);
+
+void rust_helper_kunmap_local(const void *vaddr)
+{
+	kunmap_local(vaddr);
+}
+EXPORT_SYMBOL_GPL(rust_helper_kunmap_local);
+
 void rust_helper_i_uid_write(struct inode *inode, uid_t uid)
 {
 	i_uid_write(inode, uid);
@@ -162,6 +237,12 @@ off_t rust_helper_i_size_read(const struct inode *inode)
 	return i_size_read(inode);
 }
 EXPORT_SYMBOL_GPL(rust_helper_i_size_read);
+
+void rust_helper_mapping_set_large_folios(struct address_space *mapping)
+{
+	mapping_set_large_folios(mapping);
+}
+EXPORT_SYMBOL_GPL(rust_helper_mapping_set_large_folios);
 
 /*
  * `bindgen` binds the C `size_t` type as the Rust `usize` type, so we can

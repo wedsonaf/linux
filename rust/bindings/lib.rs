@@ -59,3 +59,5 @@ pub const SLAB_ACCOUNT: slab_flags_t = BINDINGS_SLAB_ACCOUNT;
 pub const SB_RDONLY: core::ffi::c_ulong = BINDINGS_SB_RDONLY;
 
 pub const MAX_LFS_FILESIZE: loff_t = BINDINGS_MAX_LFS_FILESIZE;
+
+pub const PAGE_SIZE: usize = BINDINGS_PAGE_SIZE;

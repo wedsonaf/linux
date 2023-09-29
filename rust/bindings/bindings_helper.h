@@ -11,6 +11,7 @@
 #include <linux/fs.h>
 #include <linux/fs_context.h>
 #include <linux/slab.h>
+#include <linux/pagemap.h>
 #include <linux/refcount.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
@@ -27,3 +28,5 @@ const slab_flags_t BINDINGS_SLAB_ACCOUNT = SLAB_ACCOUNT;
 const unsigned long BINDINGS_SB_RDONLY = SB_RDONLY;
 
 const loff_t BINDINGS_MAX_LFS_FILESIZE = MAX_LFS_FILESIZE;
+
+const size_t BINDINGS_PAGE_SIZE = PAGE_SIZE;
