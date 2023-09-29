@@ -7,9 +7,9 @@
 //! C headers: [`include/linux/fs.h`](../../include/linux/fs.h)
 
 use crate::error::{code::*, from_result, to_result, Error, Result};
-use crate::types::Opaque;
+use crate::types::{AlwaysRefCounted, Opaque};
 use crate::{bindings, init::PinInit, str::CStr, try_pin_init, ThisModule};
-use core::{marker::PhantomData, marker::PhantomPinned, pin::Pin};
+use core::{marker::PhantomData, marker::PhantomPinned, pin::Pin, ptr};
 use macros::{pin_data, pinned_drop};
 
 /// Maximum size of an inode.
@@ -91,6 +91,55 @@ impl PinnedDrop for Registration {
         // `register_filesystem` has necessarily succeeded. So it's ok to call
         // `unregister_filesystem` on the previously registered fs.
         unsafe { bindings::unregister_filesystem(self.fs.get()) };
+    }
+}
+
+/// The number of an inode.
+pub type Ino = u64;
+
+/// A node in the file system index (inode).
+///
+/// Wraps the kernel's `struct inode`.
+///
+/// # Invariants
+///
+/// Instances of this type are always ref-counted, that is, a call to `ihold` ensures that the
+/// allocation remains valid at least until the matching call to `iput`.
+#[repr(transparent)]
+pub struct INode<T: FileSystem + ?Sized>(Opaque<bindings::inode>, PhantomData<T>);
+
+impl<T: FileSystem + ?Sized> INode<T> {
+    /// Returns the number of the inode.
+    pub fn ino(&self) -> Ino {
+        // SAFETY: `i_ino` is immutable, and `self` is guaranteed to be valid by the existence of a
+        // shared reference (&self) to it.
+        unsafe { (*self.0.get()).i_ino }
+    }
+
+    /// Returns the super-block that owns the inode.
+    pub fn super_block(&self) -> &SuperBlock<T> {
+        // SAFETY: `i_sb` is immutable, and `self` is guaranteed to be valid by the existence of a
+        // shared reference (&self) to it.
+        unsafe { &*(*self.0.get()).i_sb.cast() }
+    }
+
+    /// Returns the size of the inode contents.
+    pub fn size(&self) -> i64 {
+        // SAFETY: `self` is guaranteed to be valid by the existence of a shared reference.
+        unsafe { bindings::i_size_read(self.0.get()) }
+    }
+}
+
+// SAFETY: The type invariants guarantee that `INode` is always ref-counted.
+unsafe impl<T: FileSystem + ?Sized> AlwaysRefCounted for INode<T> {
+    fn inc_ref(&self) {
+        // SAFETY: The existence of a shared reference means that the refcount is nonzero.
+        unsafe { bindings::ihold(self.0.get()) };
+    }
+
+    unsafe fn dec_ref(obj: ptr::NonNull<Self>) {
+        // SAFETY: The safety requirements guarantee that the refcount is nonzero.
+        unsafe { bindings::iput(obj.cast().as_ptr()) }
     }
 }
 
