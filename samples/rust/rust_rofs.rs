@@ -7,7 +7,7 @@ use kernel::fs::{
 };
 use kernel::prelude::*;
 use kernel::types::{ARef, Either, Locked};
-use kernel::{c_str, folio::Folio, folio::PageCache, fs, time::UNIX_EPOCH, user};
+use kernel::{c_str, folio::Folio, folio::PageCache, fs, str::CString, time::UNIX_EPOCH, user};
 
 kernel::module_fs! {
     type: RoFs,
@@ -24,7 +24,7 @@ struct Entry {
     contents: &'static [u8],
 }
 
-const ENTRIES: [Entry; 3] = [
+const ENTRIES: [Entry; 4] = [
     Entry {
         name: b".",
         ino: 1,
@@ -43,11 +43,18 @@ const ENTRIES: [Entry; 3] = [
         etype: inode::Type::Reg,
         contents: b"hello world\n",
     },
+    Entry {
+        name: b"link.txt",
+        ino: 3,
+        etype: inode::Type::Lnk,
+        contents: b"./test.txt",
+    },
 ];
 
 const DIR_FOPS: file::Ops<RoFs> = file::Ops::new::<RoFs>();
 const DIR_IOPS: inode::Ops<RoFs> = inode::Ops::new::<RoFs>();
 const FILE_AOPS: address_space::Ops<RoFs> = address_space::Ops::new::<RoFs>();
+const LNK_IOPS: inode::Ops<RoFs> = inode::Ops::new::<Link>();
 
 struct RoFs;
 
@@ -68,6 +75,11 @@ impl RoFs {
                     .set_aops(FILE_AOPS);
                 (0o444, 1, e.contents.len().try_into()?)
             }
+            inode::Type::Lnk => {
+                new.set_iops(LNK_IOPS);
+                (0o444, 1, e.contents.len().try_into()?)
+            }
+            _ => return Err(ENOENT),
         };
 
         new.init(inode::Params {
@@ -120,6 +132,33 @@ impl inode::Operations for RoFs {
         }
 
         dentry.splice_alias(None)
+    }
+}
+
+struct Link;
+#[vtable]
+impl inode::Operations for Link {
+    type FileSystem = RoFs;
+
+    fn get_link<'a>(
+        dentry: Option<&DEntry<RoFs>>,
+        inode: &'a INode<RoFs>,
+    ) -> Result<Either<CString, &'a CStr>> {
+        if dentry.is_none() {
+            return Err(ECHILD);
+        }
+
+        let name_buf = match inode.ino() {
+            3 => ENTRIES[3].contents,
+            _ => return Err(EINVAL),
+        };
+        let mut name = Box::new_slice(
+            name_buf.len().checked_add(1).ok_or(ENOMEM)?,
+            b'\0',
+            GFP_NOFS,
+        )?;
+        name[..name_buf.len()].copy_from_slice(name_buf);
+        Ok(Either::Left(name.try_into()?))
     }
 }
 

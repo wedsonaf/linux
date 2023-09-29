@@ -10,8 +10,8 @@ use super::{
     address_space, dentry, dentry::DEntry, file, sb::SuperBlock, FileSystem, Offset, UnspecifiedFS,
 };
 use crate::error::{code::*, Result};
-use crate::types::{ARef, AlwaysRefCounted, Lockable, Locked, Opaque};
-use crate::{bindings, block, time::Timespec};
+use crate::types::{ARef, AlwaysRefCounted, Either, ForeignOwnable, Lockable, Locked, Opaque};
+use crate::{bindings, block, str::CStr, str::CString, time::Timespec};
 use core::mem::ManuallyDrop;
 use core::{marker::PhantomData, ptr};
 use macros::vtable;
@@ -24,6 +24,18 @@ pub type Ino = u64;
 pub trait Operations {
     /// File system that these operations are compatible with.
     type FileSystem: FileSystem + ?Sized;
+
+    /// Returns the string that represents the name of the file a symbolic link inode points to.
+    ///
+    /// When `dentry` is `None`, `get_link` is called with the RCU read-side lock held, so it may
+    /// not sleep. Implementations must return `Err(ECHILD)` for it to be called again without
+    /// holding the RCU lock.
+    fn get_link<'a>(
+        _dentry: Option<&DEntry<Self::FileSystem>>,
+        _inode: &'a INode<Self::FileSystem>,
+    ) -> Result<Either<CString, &'a CStr>> {
+        Err(ENOTSUPP)
+    }
 
     /// Returns the inode corresponding to the directory entry with the given name.
     fn lookup(
@@ -134,6 +146,52 @@ impl<T: FileSystem + ?Sized> New<T> {
                 unsafe { bindings::mapping_set_large_folios(inode.i_mapping) };
                 bindings::S_IFREG
             }
+            Type::Lnk => {
+                // If we are using `page_get_link`, we need to prevent the use of high mem.
+                if !inode.i_op.is_null() {
+                    // SAFETY: We just checked that `i_op` is non-null, and we always just set it
+                    // to valid values.
+                    if unsafe {
+                        (*inode.i_op).get_link == bindings::page_symlink_inode_operations.get_link
+                    } {
+                        // SAFETY: `inode` is valid for write as it's a new inode.
+                        unsafe { bindings::inode_nohighmem(inode) };
+                    }
+                }
+                bindings::S_IFLNK
+            }
+            Type::Fifo => {
+                // SAFETY: `inode` is valid for write as it's a new inode.
+                unsafe { bindings::init_special_inode(inode, bindings::S_IFIFO as _, 0) };
+                bindings::S_IFIFO
+            }
+            Type::Sock => {
+                // SAFETY: `inode` is valid for write as it's a new inode.
+                unsafe { bindings::init_special_inode(inode, bindings::S_IFSOCK as _, 0) };
+                bindings::S_IFSOCK
+            }
+            Type::Chr(major, minor) => {
+                // SAFETY: `inode` is valid for write as it's a new inode.
+                unsafe {
+                    bindings::init_special_inode(
+                        inode,
+                        bindings::S_IFCHR as _,
+                        bindings::MKDEV(major, minor & bindings::MINORMASK),
+                    )
+                };
+                bindings::S_IFCHR
+            }
+            Type::Blk(major, minor) => {
+                // SAFETY: `inode` is valid for write as it's a new inode.
+                unsafe {
+                    bindings::init_special_inode(
+                        inode,
+                        bindings::S_IFBLK as _,
+                        bindings::MKDEV(major, minor & bindings::MINORMASK),
+                    )
+                };
+                bindings::S_IFBLK
+            }
         };
 
         inode.i_mode = (params.mode & 0o777) | u16::try_from(mode)?;
@@ -194,11 +252,26 @@ impl<T: FileSystem + ?Sized> Drop for New<T> {
 /// The type of an inode.
 #[derive(Copy, Clone)]
 pub enum Type {
+    /// Named pipe (first-in, first-out) type.
+    Fifo,
+
+    /// Character device type.
+    Chr(u32, u32),
+
     /// Directory type.
     Dir,
 
+    /// Block device type.
+    Blk(u32, u32),
+
     /// Regular file type.
     Reg,
+
+    /// Symbolic link type.
+    Lnk,
+
+    /// Named unix-domain socket type.
+    Sock,
 }
 
 /// Required inode parameters.
@@ -245,6 +318,15 @@ pub struct Params {
 pub struct Ops<T: FileSystem + ?Sized>(*const bindings::inode_operations, PhantomData<T>);
 
 impl<T: FileSystem + ?Sized> Ops<T> {
+    /// Returns inode operations for symbolic links that are stored in a single page.
+    pub fn page_symlink_inode() -> Self {
+        // SAFETY: This is a constant in C, it never changes.
+        Self(
+            unsafe { &bindings::page_symlink_inode_operations },
+            PhantomData,
+        )
+    }
+
     /// Creates the inode operations from a type that implements the [`Operations`] trait.
     pub const fn new<U: Operations<FileSystem = T> + ?Sized>() -> Self {
         struct Table<T: Operations + ?Sized>(PhantomData<T>);
@@ -255,7 +337,11 @@ impl<T: FileSystem + ?Sized> Ops<T> {
                 } else {
                     None
                 },
-                get_link: None,
+                get_link: if T::HAS_GET_LINK {
+                    Some(Self::get_link_callback)
+                } else {
+                    None
+                },
                 permission: None,
                 get_inode_acl: None,
                 readlink: None,
@@ -301,6 +387,45 @@ impl<T: FileSystem + ?Sized> Ops<T> {
                     Err(e) => e.to_ptr(),
                     Ok(None) => ptr::null_mut(),
                     Ok(Some(ret)) => ManuallyDrop::new(ret).0.get(),
+                }
+            }
+
+            extern "C" fn get_link_callback(
+                dentry_ptr: *mut bindings::dentry,
+                inode_ptr: *mut bindings::inode,
+                delayed_call: *mut bindings::delayed_call,
+            ) -> *const core::ffi::c_char {
+                extern "C" fn drop_cstring(ptr: *mut core::ffi::c_void) {
+                    // SAFETY: The argument came from a previous call to `into_foreign` below.
+                    unsafe { CString::from_foreign(ptr) };
+                }
+
+                let dentry = if dentry_ptr.is_null() {
+                    None
+                } else {
+                    // SAFETY: The C API guarantees that `dentry_ptr` is a valid dentry when it's
+                    // non-null.
+                    Some(unsafe { DEntry::from_raw(dentry_ptr) })
+                };
+
+                // SAFETY: The C API guarantees that `parent_ptr` is a valid inode.
+                let inode = unsafe { INode::from_raw(inode_ptr) };
+
+                match T::get_link(dentry, inode) {
+                    Err(e) => e.to_ptr::<core::ffi::c_char>(),
+                    Ok(Either::Right(str)) => str.as_char_ptr(),
+                    Ok(Either::Left(str)) => {
+                        let ptr = str.into_foreign();
+                        unsafe {
+                            bindings::set_delayed_call(
+                                delayed_call,
+                                Some(drop_cstring),
+                                ptr.cast_mut(),
+                            )
+                        };
+
+                        ptr.cast::<core::ffi::c_char>()
+                    }
                 }
             }
         }
