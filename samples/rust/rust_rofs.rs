@@ -93,12 +93,14 @@ impl RoFs {
             atime: UNIX_EPOCH,
             ctime: UNIX_EPOCH,
             mtime: UNIX_EPOCH,
+            value: e,
         })
     }
 }
 
 impl fs::FileSystem for RoFs {
     type Data = ();
+    type INodeData = &'static Entry;
     const NAME: &'static CStr = c_str!("rust_rofs");
 
     fn super_params(_sb: &sb::SuperBlock<Self, sb::New>) -> Result<sb::Params<()>> {
@@ -154,10 +156,7 @@ impl inode::Operations for Link {
             return Err(ECHILD);
         }
 
-        let name_buf = match inode.ino() {
-            3 => ENTRIES[3].contents,
-            _ => return Err(EINVAL),
-        };
+        let name_buf = inode.data().contents;
         let mut name = Box::try_new_slice(name_buf.len().checked_add(1).ok_or(ENOMEM)?, b'\0')?;
         name[..name_buf.len()].copy_from_slice(name_buf);
         Ok(Either::Left(name.try_into()?))
@@ -169,11 +168,7 @@ impl address_space::Operations for RoFs {
     type FileSystem = Self;
 
     fn read_folio(_: Option<&File<Self>>, mut folio: Locked<&Folio<PageCache<Self>>>) -> Result {
-        let data = match folio.inode().ino() {
-            2 => ENTRIES[2].contents,
-            _ => return Err(EINVAL),
-        };
-
+        let data = folio.inode().data().contents;
         let pos = usize::try_from(folio.pos()).unwrap_or(usize::MAX);
         let copied = if pos >= data.len() {
             0

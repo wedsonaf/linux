@@ -9,8 +9,8 @@
 use super::{address_space, dentry, dentry::DEntry, file, sb::SuperBlock, FileSystem, Offset};
 use crate::error::{code::*, Result};
 use crate::types::{ARef, AlwaysRefCounted, Either, ForeignOwnable, Opaque};
-use crate::{bindings, str::CStr, str::CString, time::Timespec};
-use core::mem::ManuallyDrop;
+use crate::{bindings, container_of, mem_cache::MemCache, str::CStr, str::CString, time::Timespec};
+use core::mem::{size_of, ManuallyDrop, MaybeUninit};
 use core::{marker::PhantomData, ptr};
 use macros::vtable;
 
@@ -83,10 +83,101 @@ impl<T: FileSystem + ?Sized> INode<T> {
         unsafe { SuperBlock::from_raw((*self.0.get()).i_sb) }
     }
 
+    /// Returns the data associated with the inode.
+    pub fn data(&self) -> &T::INodeData {
+        if T::IS_UNSPECIFIED {
+            crate::build_error!("inode data type is unspecified");
+        }
+        let outerp = container_of!(self.0.get(), WithData<T::INodeData>, inode);
+        // SAFETY: `self` is guaranteed to be valid by the existence of a shared reference
+        // (`&self`) to it. Additionally, we know `T::INodeData` is always initialised in an
+        // `INode`.
+        unsafe { &*(*outerp).data.as_ptr() }
+    }
+
     /// Returns the size of the inode contents.
     pub fn size(&self) -> Offset {
         // SAFETY: `self` is guaranteed to be valid by the existence of a shared reference.
         unsafe { bindings::i_size_read(self.0.get()) }
+    }
+
+    pub(crate) fn new_cache() -> Result<Option<MemCache>> {
+        Ok(if size_of::<T::INodeData>() == 0 {
+            None
+        } else {
+            Some(MemCache::try_new::<WithData<T::INodeData>>(
+                T::NAME,
+                Some(Self::inode_init_once_callback),
+            )?)
+        })
+    }
+
+    unsafe extern "C" fn inode_init_once_callback(outer_inode: *mut core::ffi::c_void) {
+        let ptr = outer_inode.cast::<WithData<T::INodeData>>();
+
+        // SAFETY: This is only used in `new`, so we know that we have a valid `inode::WithData`
+        // instance whose inode part can be initialised.
+        unsafe { bindings::inode_init_once(ptr::addr_of_mut!((*ptr).inode)) };
+    }
+
+    pub(crate) unsafe extern "C" fn alloc_inode_callback(
+        sb: *mut bindings::super_block,
+    ) -> *mut bindings::inode {
+        // SAFETY: The callback contract guarantees that `sb` is valid for read.
+        let super_type = unsafe { (*sb).s_type };
+
+        // SAFETY: This callback is only used in `Registration`, so `super_type` is necessarily
+        // embedded in a `Registration`, which is guaranteed to be valid because it has a
+        // superblock associated to it.
+        let reg = unsafe { &*container_of!(super_type, super::Registration, fs) };
+
+        // SAFETY: `sb` and `cache` are guaranteed to be valid by the callback contract and by
+        // the existence of a superblock respectively.
+        let ptr = unsafe {
+            bindings::alloc_inode_sb(sb, MemCache::ptr(&reg.inode_cache), bindings::GFP_KERNEL)
+        }
+        .cast::<WithData<T::INodeData>>();
+        if ptr.is_null() {
+            return ptr::null_mut();
+        }
+        ptr::addr_of_mut!((*ptr).inode)
+    }
+
+    pub(crate) unsafe extern "C" fn destroy_inode_callback(inode: *mut bindings::inode) {
+        // SAFETY: By the C contract, `inode` is a valid pointer.
+        let is_bad = unsafe { bindings::is_bad_inode(inode) };
+
+        // SAFETY: The inode is guaranteed to be valid by the callback contract. Additionally, the
+        // superblock is also guaranteed to still be valid by the inode existence.
+        let super_type = unsafe { (*(*inode).i_sb).s_type };
+
+        // SAFETY: This callback is only used in `Registration`, so `super_type` is necessarily
+        // embedded in a `Registration`, which is guaranteed to be valid because it has a
+        // superblock associated to it.
+        let reg = unsafe { &*container_of!(super_type, super::Registration, fs) };
+        let ptr = container_of!(inode, WithData<T::INodeData>, inode).cast_mut();
+
+        if !is_bad {
+            // SAFETY: The code either initialises the data or marks the inode as bad. Since the
+            // inode is not bad, the data is initialised, and thus safe to drop.
+            unsafe { ptr::drop_in_place((*ptr).data.as_mut_ptr()) };
+        }
+
+        if size_of::<T::INodeData>() == 0 {
+            // SAFETY: When the size of `INodeData` is zero, we don't use a separate mem_cache, so
+            // it is allocated from the regular mem_cache, which is what `free_inode_nonrcu` uses
+            // to free the inode.
+            unsafe { bindings::free_inode_nonrcu(inode) };
+        } else {
+            // The callback contract guarantees that the inode was previously allocated via the
+            // `alloc_inode_callback` callback, so it is safe to free it back to the cache.
+            unsafe {
+                bindings::kmem_cache_free(
+                    MemCache::ptr(&reg.inode_cache),
+                    ptr.cast::<core::ffi::c_void>(),
+                )
+            };
+        }
     }
 }
 
@@ -103,6 +194,11 @@ unsafe impl<T: FileSystem + ?Sized> AlwaysRefCounted for INode<T> {
     }
 }
 
+struct WithData<T> {
+    data: MaybeUninit<T>,
+    inode: bindings::inode,
+}
+
 /// An inode that is locked and hasn't been initialised yet.
 ///
 /// # Invariants
@@ -115,9 +211,18 @@ pub struct New<T: FileSystem + ?Sized>(
 
 impl<T: FileSystem + ?Sized> New<T> {
     /// Initialises the new inode with the given parameters.
-    pub fn init(mut self, params: Params) -> Result<ARef<INode<T>>> {
-        // SAFETY: This is a new inode, so it's safe to manipulate it mutably.
-        let inode = unsafe { self.0.as_mut() };
+    pub fn init(self, params: Params<T::INodeData>) -> Result<ARef<INode<T>>> {
+        let outerp = container_of!(self.0.as_ptr(), WithData<T::INodeData>, inode);
+
+        // SAFETY: This is a newly-created inode. No other references to it exist, so it is
+        // safe to mutably dereference it.
+        let outer = unsafe { &mut *outerp.cast_mut() };
+
+        // N.B. We must always write this to a newly allocated inode because the free callback
+        // expects the data to be initialised and drops it.
+        outer.data.write(params.value);
+
+        let inode = &mut outer.inode;
         let mode = match params.typ {
             Type::Dir => bindings::S_IFDIR,
             Type::Reg => {
@@ -256,7 +361,7 @@ pub enum Type {
 /// Required inode parameters.
 ///
 /// This is used when creating new inodes.
-pub struct Params {
+pub struct Params<T> {
     /// The access mode. It's a mask that grants execute (1), write (2) and read (4) access to
     /// everyone, the owner group, and the owner.
     pub mode: u16,
@@ -291,6 +396,9 @@ pub struct Params {
 
     /// Last access time.
     pub atime: Timespec,
+
+    /// Value to attach to this node.
+    pub value: T,
 }
 
 /// Represents inode operations.

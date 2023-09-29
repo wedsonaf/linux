@@ -254,6 +254,13 @@ void rust_helper_kunmap_local(const void *vaddr)
 }
 EXPORT_SYMBOL_GPL(rust_helper_kunmap_local);
 
+void *rust_helper_alloc_inode_sb(struct super_block *sb,
+				 struct kmem_cache *cache, gfp_t gfp)
+{
+	return alloc_inode_sb(sb, cache, gfp);
+}
+EXPORT_SYMBOL_GPL(rust_helper_alloc_inode_sb);
+
 void rust_helper_i_uid_write(struct inode *inode, uid_t uid)
 {
 	i_uid_write(inode, uid);
