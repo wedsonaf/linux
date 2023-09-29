@@ -15,6 +15,7 @@
 #include <linux/fs_context.h>
 #include <linux/jiffies.h>
 #include <linux/mdio.h>
+#include <linux/pagemap.h>
 #include <linux/phy.h>
 #include <linux/refcount.h>
 #include <linux/sched.h>
@@ -37,3 +38,5 @@ const slab_flags_t RUST_CONST_HELPER_SLAB_ACCOUNT = SLAB_ACCOUNT;
 const unsigned long RUST_CONST_HELPER_SB_RDONLY = SB_RDONLY;
 
 const loff_t RUST_CONST_HELPER_MAX_LFS_FILESIZE = MAX_LFS_FILESIZE;
+
+const size_t RUST_CONST_HELPER_PAGE_SIZE = PAGE_SIZE;
