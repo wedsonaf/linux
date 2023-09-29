@@ -2,6 +2,7 @@
 
 //! Rust read-only file system sample.
 
+use kernel::fs::{NewSuperBlock, SuperParams};
 use kernel::prelude::*;
 use kernel::{c_str, fs};
 
@@ -16,4 +17,13 @@ kernel::module_fs! {
 struct RoFs;
 impl fs::FileSystem for RoFs {
     const NAME: &'static CStr = c_str!("rust-fs");
+
+    fn super_params(_sb: &NewSuperBlock<Self>) -> Result<SuperParams> {
+        Ok(SuperParams {
+            magic: 0x52555354,
+            blocksize_bits: 12,
+            maxbytes: fs::MAX_LFS_FILESIZE,
+            time_gran: 1,
+        })
+    }
 }
