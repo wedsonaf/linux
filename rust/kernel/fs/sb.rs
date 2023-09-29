@@ -6,9 +6,12 @@
 //!
 //! C headers: [`include/linux/fs.h`](srctree/include/linux/fs.h)
 
+use super::inode::{self, INode, Ino};
 use super::{FileSystem, Offset};
-use crate::{bindings, types::Opaque};
-use core::marker::PhantomData;
+use crate::bindings;
+use crate::error::{code::*, Result};
+use crate::types::{ARef, Either, Opaque};
+use core::{marker::PhantomData, ptr};
 
 /// A file system super block.
 ///
@@ -32,6 +35,30 @@ impl<T: FileSystem + ?Sized> SuperBlock<T> {
     pub(crate) unsafe fn from_raw<'a>(ptr: *mut bindings::super_block) -> &'a Self {
         // SAFETY: The safety requirements guarantee that the cast below is ok.
         unsafe { &*ptr.cast::<Self>() }
+    }
+
+    /// Tries to get an existing inode or create a new one if it doesn't exist yet.
+    pub fn get_or_create_inode(&self, ino: Ino) -> Result<Either<ARef<INode<T>>, inode::New<T>>> {
+        // SAFETY: All superblock-related state needed by `iget_locked` is initialised by C code
+        // before calling `fill_super_callback`, or by `fill_super_callback` itself before calling
+        // `super_params`, which is the first function to see a new superblock.
+        let inode =
+            ptr::NonNull::new(unsafe { bindings::iget_locked(self.0.get(), ino) }).ok_or(ENOMEM)?;
+
+        // SAFETY: `inode` is valid for read, but there could be concurrent writers (e.g., if it's
+        // an already-initialised inode), so we use `read_volatile` to read its current state.
+        let state = unsafe { ptr::read_volatile(ptr::addr_of!((*inode.as_ptr()).i_state)) };
+        if state & u64::from(bindings::I_NEW) == 0 {
+            // The inode is cached. Just return it.
+            //
+            // SAFETY: `inode` had its refcount incremented by `iget_locked`; this increment is now
+            // owned by `ARef`.
+            Ok(Either::Left(unsafe { ARef::from_raw(inode.cast()) }))
+        } else {
+            // SAFETY: The new inode is valid but not fully initialised yet, so it's ok to create a
+            // `inode::New`.
+            Ok(Either::Right(inode::New(inode, PhantomData)))
+        }
     }
 }
 

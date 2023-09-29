@@ -9,7 +9,7 @@
 use crate::error::{code::*, from_result, to_result, Error, Result};
 use crate::types::Opaque;
 use crate::{bindings, init::PinInit, str::CStr, try_pin_init, ThisModule};
-use core::{marker::PhantomData, pin::Pin};
+use core::{marker::PhantomData, mem::ManuallyDrop, pin::Pin, ptr};
 use macros::{pin_data, pinned_drop};
 use sb::SuperBlock;
 
@@ -30,6 +30,12 @@ pub trait FileSystem {
 
     /// Returns the parameters to initialise a super block.
     fn super_params(sb: &SuperBlock<Self>) -> Result<sb::Params>;
+
+    /// Initialises and returns the root inode of the given superblock.
+    ///
+    /// This is called during initialisation of a superblock after [`FileSystem::super_params`] has
+    /// completed successfully.
+    fn init_root(sb: &SuperBlock<Self>) -> Result<dentry::Root<Self>>;
 }
 
 /// A registration of a file system.
@@ -143,41 +149,18 @@ impl<T: FileSystem + ?Sized> Tables<T> {
             }
             sb.s_blocksize = 1 << sb.s_blocksize_bits;
 
-            // The following is scaffolding code that will be removed in a subsequent patch. It is
-            // needed to build a root dentry, otherwise core code will BUG().
-            // SAFETY: `sb` is the superblock being initialised, it is valid for read and write.
-            let inode = unsafe { bindings::new_inode(sb) };
-            if inode.is_null() {
-                return Err(ENOMEM);
+            let root = T::init_root(new_sb)?;
+
+            // Reject root inode if it belongs to a different superblock.
+            if !ptr::eq(root.super_block(), new_sb) {
+                return Err(EINVAL);
             }
 
-            // SAFETY: `inode` is valid for write.
-            unsafe { bindings::set_nlink(inode, 2) };
+            let dentry = ManuallyDrop::new(root).0.get();
 
-            {
-                // SAFETY: This is a newly-created inode. No other references to it exist, so it is
-                // safe to mutably dereference it.
-                let inode = unsafe { &mut *inode };
-                inode.i_ino = 1;
-                inode.i_mode = (bindings::S_IFDIR | 0o755) as _;
-
-                // SAFETY: `simple_dir_operations` never changes, it's safe to reference it.
-                inode.__bindgen_anon_3.i_fop = unsafe { &bindings::simple_dir_operations };
-
-                // SAFETY: `simple_dir_inode_operations` never changes, it's safe to reference it.
-                inode.i_op = unsafe { &bindings::simple_dir_inode_operations };
-            }
-
-            // SAFETY: `d_make_root` requires that `inode` be valid and referenced, which is the
-            // case for this call.
-            //
-            // It takes over the inode, even on failure, so we don't need to clean it up.
-            let dentry = unsafe { bindings::d_make_root(inode) };
-            if dentry.is_null() {
-                return Err(ENOMEM);
-            }
-
-            sb.s_root = dentry;
+            // SAFETY: The callback contract guarantees that `sb_ptr` is a unique pointer to a
+            // newly-created (and initialised above) superblock.
+            unsafe { (*sb_ptr).s_root = dentry };
 
             Ok(0)
         })
@@ -242,9 +225,8 @@ impl<T: FileSystem + ?Sized + Sync + Send> crate::InPlaceModule for Module<T> {
 ///
 /// ```
 /// # mod module_fs_sample {
-/// use kernel::fs::sb::{self, SuperBlock};
+/// use kernel::fs::{self, dentry, inode::INode, sb, sb::SuperBlock};
 /// use kernel::prelude::*;
-/// use kernel::{c_str, fs};
 ///
 /// kernel::module_fs! {
 ///     type: MyFs,
@@ -256,8 +238,11 @@ impl<T: FileSystem + ?Sized + Sync + Send> crate::InPlaceModule for Module<T> {
 ///
 /// struct MyFs;
 /// impl fs::FileSystem for MyFs {
-///     const NAME: &'static CStr = c_str!("myfs");
+///     const NAME: &'static CStr = kernel::c_str!("myfs");
 ///     fn super_params(_: &SuperBlock<Self>) -> Result<sb::Params> {
+///         todo!()
+///     }
+///     fn init_root(_sb: &SuperBlock<Self>) -> Result<dentry::Root<Self>> {
 ///         todo!()
 ///     }
 /// }

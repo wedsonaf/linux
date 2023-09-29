@@ -7,8 +7,10 @@
 //! C headers: [`include/linux/fs.h`](srctree/include/linux/fs.h)
 
 use super::{sb::SuperBlock, FileSystem, Offset};
-use crate::bindings;
-use crate::types::{AlwaysRefCounted, Opaque};
+use crate::error::Result;
+use crate::types::{ARef, AlwaysRefCounted, Opaque};
+use crate::{bindings, time::Timespec};
+use core::mem::ManuallyDrop;
 use core::{marker::PhantomData, ptr};
 
 /// The number of an inode.
@@ -72,4 +74,109 @@ unsafe impl<T: FileSystem + ?Sized> AlwaysRefCounted for INode<T> {
         // SAFETY: The safety requirements guarantee that the refcount is nonzero.
         unsafe { bindings::iput(obj.as_ref().0.get()) }
     }
+}
+
+/// An inode that is locked and hasn't been initialised yet.
+///
+/// # Invariants
+///
+/// The inode is a new one, locked, and valid for write.
+pub struct New<T: FileSystem + ?Sized>(
+    pub(crate) ptr::NonNull<bindings::inode>,
+    pub(crate) PhantomData<T>,
+);
+
+impl<T: FileSystem + ?Sized> New<T> {
+    /// Initialises the new inode with the given parameters.
+    pub fn init(mut self, params: Params) -> Result<ARef<INode<T>>> {
+        // SAFETY: This is a new inode, so it's safe to manipulate it mutably.
+        let inode = unsafe { self.0.as_mut() };
+        let mode = match params.typ {
+            Type::Dir => {
+                // SAFETY: `simple_dir_operations` never changes, it's safe to reference it.
+                inode.__bindgen_anon_3.i_fop = unsafe { &bindings::simple_dir_operations };
+
+                // SAFETY: `simple_dir_inode_operations` never changes, it's safe to reference it.
+                inode.i_op = unsafe { &bindings::simple_dir_inode_operations };
+
+                bindings::S_IFDIR
+            }
+        };
+
+        inode.i_mode = (params.mode & 0o777) | u16::try_from(mode)?;
+        inode.i_size = params.size;
+        inode.i_blocks = params.blocks;
+
+        inode.__i_ctime = params.ctime.into();
+        inode.__i_mtime = params.mtime.into();
+        inode.__i_atime = params.atime.into();
+
+        // SAFETY: inode is a new inode, so it is valid for write.
+        unsafe {
+            bindings::set_nlink(inode, params.nlink);
+            bindings::i_uid_write(inode, params.uid);
+            bindings::i_gid_write(inode, params.gid);
+            bindings::unlock_new_inode(inode);
+        }
+
+        let manual = ManuallyDrop::new(self);
+        // SAFETY: We transferred ownership of the refcount to `ARef` by preventing `drop` from
+        // being called with the `ManuallyDrop` instance created above.
+        Ok(unsafe { ARef::from_raw(manual.0.cast::<INode<T>>()) })
+    }
+}
+
+impl<T: FileSystem + ?Sized> Drop for New<T> {
+    fn drop(&mut self) {
+        // SAFETY: The new inode failed to be turned into an initialised inode, so it's safe (and
+        // in fact required) to call `iget_failed` on it.
+        unsafe { bindings::iget_failed(self.0.as_ptr()) };
+    }
+}
+
+/// The type of an inode.
+#[derive(Copy, Clone)]
+pub enum Type {
+    /// Directory type.
+    Dir,
+}
+
+/// Required inode parameters.
+///
+/// This is used when creating new inodes.
+pub struct Params {
+    /// The access mode. It's a mask that grants execute (1), write (2) and read (4) access to
+    /// everyone, the owner group, and the owner.
+    pub mode: u16,
+
+    /// Type of inode.
+    ///
+    /// Also carries additional per-type data.
+    pub typ: Type,
+
+    /// Size of the contents of the inode.
+    ///
+    /// Its maximum value is [`super::MAX_LFS_FILESIZE`].
+    pub size: Offset,
+
+    /// Number of blocks.
+    pub blocks: u64,
+
+    /// Number of links to the inode.
+    pub nlink: u32,
+
+    /// User id.
+    pub uid: u32,
+
+    /// Group id.
+    pub gid: u32,
+
+    /// Creation time.
+    pub ctime: Timespec,
+
+    /// Last modification time.
+    pub mtime: Timespec,
+
+    /// Last access time.
+    pub atime: Timespec,
 }
