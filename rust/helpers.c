@@ -21,6 +21,7 @@
  */
 
 #include <kunit/test-bug.h>
+#include <linux/buffer_head.h>
 #include <linux/bug.h>
 #include <linux/build_bug.h>
 #include <linux/cacheflush.h>
@@ -287,6 +288,20 @@ unsigned int rust_helper_MKDEV(unsigned int major, unsigned int minor)
 	return MKDEV(major, minor);
 }
 EXPORT_SYMBOL_GPL(rust_helper_MKDEV);
+
+#ifdef CONFIG_BUFFER_HEAD
+void rust_helper_get_bh(struct buffer_head *bh)
+{
+	get_bh(bh);
+}
+EXPORT_SYMBOL_GPL(rust_helper_get_bh);
+
+void rust_helper_put_bh(struct buffer_head *bh)
+{
+	put_bh(bh);
+}
+EXPORT_SYMBOL_GPL(rust_helper_put_bh);
+#endif
 
 unsigned long rust_helper_copy_to_user(void __user *to, const void *from,
 				       unsigned long n)

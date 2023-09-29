@@ -8,6 +8,7 @@
 
 #include <kunit/test.h>
 #include <linux/blk_types.h>
+#include <linux/buffer_head.h>
 #include <linux/errname.h>
 #include <linux/file.h>
 #include <linux/fs.h>
