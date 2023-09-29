@@ -79,6 +79,7 @@ pub mod code {
     declare_err!(ENOGRACE, "NFS file lock reclaim refused.");
     declare_err!(ENODATA, "No data available.");
     declare_err!(EOPNOTSUPP, "Operation not supported on transport endpoint.");
+    declare_err!(ENOSYS, "Invalid system call number.");
     declare_err!(ESTALE, "Stale file handle.");
     declare_err!(EUCLEAN, "Structure needs cleaning.");
 }

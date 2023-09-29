@@ -61,6 +61,31 @@ pub trait FileSystem {
     ) -> Result<usize> {
         Err(EOPNOTSUPP)
     }
+
+    /// Get filesystem statistics.
+    fn statfs(_dentry: &DEntry<Self>) -> Result<Stat> {
+        Err(ENOSYS)
+    }
+}
+
+/// File system stats.
+///
+/// A subset of C's `kstatfs`.
+pub struct Stat {
+    /// Magic number of the file system.
+    pub magic: usize,
+
+    /// The maximum length of a file name.
+    pub namelen: isize,
+
+    /// Block size.
+    pub bsize: isize,
+
+    /// Number of files in the file system.
+    pub files: u64,
+
+    /// Number of blocks in the file system.
+    pub blocks: u64,
 }
 
 /// A file system that is unspecified.
@@ -213,7 +238,7 @@ impl<T: FileSystem + ?Sized> Tables<T> {
         freeze_fs: None,
         thaw_super: None,
         unfreeze_fs: None,
-        statfs: None,
+        statfs: Some(Self::statfs_callback),
         remount_fs: None,
         umount_begin: None,
         show_options: None,
@@ -230,6 +255,26 @@ impl<T: FileSystem + ?Sized> Tables<T> {
         free_cached_objects: None,
         shutdown: None,
     };
+
+    unsafe extern "C" fn statfs_callback(
+        dentry_ptr: *mut bindings::dentry,
+        buf: *mut bindings::kstatfs,
+    ) -> ffi::c_int {
+        from_result(|| {
+            // SAFETY: The C API guarantees that `dentry_ptr` is a valid dentry.
+            let dentry = unsafe { DEntry::from_raw(dentry_ptr) };
+            let s = T::statfs(dentry)?;
+
+            // SAFETY: The C API guarantees that `buf` is valid for read and write.
+            let buf = unsafe { &mut *buf };
+            buf.f_type = s.magic as ffi::c_long;
+            buf.f_namelen = s.namelen as ffi::c_long;
+            buf.f_bsize = s.bsize as ffi::c_long;
+            buf.f_files = s.files;
+            buf.f_blocks = s.blocks;
+            Ok(0)
+        })
+    }
 
     const XATTR_HANDLERS: [*const bindings::xattr_handler; 2] = [&Self::XATTR_HANDLER, ptr::null()];
 
