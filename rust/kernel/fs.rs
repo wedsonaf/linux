@@ -10,6 +10,8 @@ use crate::error::{code::*, from_result, to_result, Error, Result};
 use crate::types::Opaque;
 use crate::{bindings, init::PinInit, str::CStr, try_pin_init, ThisModule};
 use core::{ffi, marker::PhantomData, mem::ManuallyDrop, pin::Pin, ptr};
+use dentry::DEntry;
+use inode::INode;
 use macros::{pin_data, pinned_drop};
 use sb::SuperBlock;
 
@@ -46,6 +48,19 @@ pub trait FileSystem {
     /// This is called during initialisation of a superblock after [`FileSystem::fill_super`] has
     /// completed successfully.
     fn init_root(sb: &SuperBlock<Self>) -> Result<dentry::Root<Self>>;
+
+    /// Reads an xattr.
+    ///
+    /// Returns the number of bytes written to `outbuf`. If it is too small, returns the number of
+    /// bytes needs to hold the attribute.
+    fn read_xattr(
+        _dentry: &DEntry<Self>,
+        _inode: &INode<Self>,
+        _name: &CStr,
+        _outbuf: &mut [u8],
+    ) -> Result<usize> {
+        Err(EOPNOTSUPP)
+    }
 }
 
 /// A file system that is unspecified.
@@ -162,6 +177,7 @@ impl<T: FileSystem + ?Sized> Tables<T> {
             // derived, is valid for write.
             let sb = unsafe { &mut *new_sb.0.get() };
             sb.s_op = &Tables::<T>::SUPER_BLOCK;
+            sb.s_xattr = &Tables::<T>::XATTR_HANDLERS[0];
             sb.s_flags |= bindings::SB_RDONLY;
 
             T::fill_super(new_sb)?;
@@ -214,6 +230,49 @@ impl<T: FileSystem + ?Sized> Tables<T> {
         free_cached_objects: None,
         shutdown: None,
     };
+
+    const XATTR_HANDLERS: [*const bindings::xattr_handler; 2] = [&Self::XATTR_HANDLER, ptr::null()];
+
+    const XATTR_HANDLER: bindings::xattr_handler = bindings::xattr_handler {
+        name: ptr::null(),
+        prefix: crate::c_str!("").as_char_ptr(),
+        flags: 0,
+        list: None,
+        get: Some(Self::xattr_get_callback),
+        set: None,
+    };
+
+    unsafe extern "C" fn xattr_get_callback(
+        _handler: *const bindings::xattr_handler,
+        dentry_ptr: *mut bindings::dentry,
+        inode_ptr: *mut bindings::inode,
+        name: *const ffi::c_char,
+        buffer: *mut ffi::c_void,
+        size: usize,
+    ) -> ffi::c_int {
+        from_result(|| {
+            // SAFETY: The C API guarantees that `inode_ptr` is a valid dentry.
+            let dentry = unsafe { DEntry::from_raw(dentry_ptr) };
+
+            // SAFETY: The C API guarantees that `inode_ptr` is a valid inode.
+            let inode = unsafe { INode::from_raw(inode_ptr) };
+
+            // SAFETY: The c API guarantees that `name` is a valid null-terminated string. It
+            // also guarantees that it's valid for the duration of the callback.
+            let name = unsafe { CStr::from_char_ptr(name) };
+
+            let (buf_ptr, size) = if buffer.is_null() {
+                (ptr::NonNull::dangling().as_ptr(), 0)
+            } else {
+                (buffer.cast::<u8>(), size)
+            };
+
+            // SAFETY: The C API guarantees that `buffer` is at least `size` bytes in length.
+            let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, size) };
+            let len = T::read_xattr(dentry, inode, name, buf)?;
+            Ok(len.try_into()?)
+        })
+    }
 }
 
 /// Kernel module that exposes a single file system implemented by `T`.
