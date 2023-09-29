@@ -112,8 +112,13 @@ pub enum DirEntryType {
 impl From<INodeType> for DirEntryType {
     fn from(value: INodeType) -> Self {
         match value {
+            INodeType::Fifo => DirEntryType::Fifo,
+            INodeType::Chr(_, _) => DirEntryType::Chr,
             INodeType::Dir => DirEntryType::Dir,
+            INodeType::Blk(_, _) => DirEntryType::Blk,
             INodeType::Reg => DirEntryType::Reg,
+            INodeType::Lnk => DirEntryType::Lnk,
+            INodeType::Sock => DirEntryType::Sock,
         }
     }
 }
@@ -281,6 +286,46 @@ impl<T: FileSystem + ?Sized> NewINode<T> {
                 unsafe { bindings::mapping_set_large_folios(inode.i_mapping) };
                 bindings::S_IFREG
             }
+            INodeType::Lnk => {
+                inode.i_op = &Tables::<T>::LNK_INODE_OPERATIONS;
+                inode.i_data.a_ops = &Tables::<T>::FILE_ADDRESS_SPACE_OPERATIONS;
+
+                // SAFETY: `inode` is valid for write as it's a new inode.
+                unsafe { bindings::inode_nohighmem(inode) };
+                bindings::S_IFLNK
+            }
+            INodeType::Fifo => {
+                // SAFETY: `inode` is valid for write as it's a new inode.
+                unsafe { bindings::init_special_inode(inode, bindings::S_IFIFO as _, 0) };
+                bindings::S_IFIFO
+            }
+            INodeType::Sock => {
+                // SAFETY: `inode` is valid for write as it's a new inode.
+                unsafe { bindings::init_special_inode(inode, bindings::S_IFSOCK as _, 0) };
+                bindings::S_IFSOCK
+            }
+            INodeType::Chr(major, minor) => {
+                // SAFETY: `inode` is valid for write as it's a new inode.
+                unsafe {
+                    bindings::init_special_inode(
+                        inode,
+                        bindings::S_IFCHR as _,
+                        bindings::MKDEV(major, minor & bindings::MINORMASK),
+                    )
+                };
+                bindings::S_IFCHR
+            }
+            INodeType::Blk(major, minor) => {
+                // SAFETY: `inode` is valid for write as it's a new inode.
+                unsafe {
+                    bindings::init_special_inode(
+                        inode,
+                        bindings::S_IFBLK as _,
+                        bindings::MKDEV(major, minor & bindings::MINORMASK),
+                    )
+                };
+                bindings::S_IFBLK
+            }
         };
 
         inode.i_mode = (params.mode & 0o777) | u16::try_from(mode)?;
@@ -315,11 +360,26 @@ impl<T: FileSystem + ?Sized> Drop for NewINode<T> {
 /// The type of the inode.
 #[derive(Copy, Clone)]
 pub enum INodeType {
+    /// Named pipe (first-in, first-out) type.
+    Fifo,
+
+    /// Character device type.
+    Chr(u32, u32),
+
     /// Directory type.
     Dir,
 
+    /// Block device type.
+    Blk(u32, u32),
+
     /// Regular file type.
     Reg,
+
+    /// Symbolic link type.
+    Lnk,
+
+    /// Named unix-domain socket type.
+    Sock,
 }
 
 /// Required inode parameters.
@@ -700,6 +760,34 @@ impl<T: FileSystem + ?Sized> Tables<T> {
             },
         }
     }
+
+    const LNK_INODE_OPERATIONS: bindings::inode_operations = bindings::inode_operations {
+        lookup: None,
+        get_link: Some(bindings::page_get_link),
+        permission: None,
+        get_inode_acl: None,
+        readlink: None,
+        create: None,
+        link: None,
+        unlink: None,
+        symlink: None,
+        mkdir: None,
+        rmdir: None,
+        mknod: None,
+        rename: None,
+        setattr: None,
+        getattr: None,
+        listxattr: None,
+        fiemap: None,
+        update_time: None,
+        atomic_open: None,
+        tmpfile: None,
+        get_acl: None,
+        set_acl: None,
+        fileattr_set: None,
+        fileattr_get: None,
+        get_offset_ctx: None,
+    };
 
     const FILE_ADDRESS_SPACE_OPERATIONS: bindings::address_space_operations =
         bindings::address_space_operations {

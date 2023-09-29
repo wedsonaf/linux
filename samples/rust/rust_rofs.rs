@@ -23,7 +23,7 @@ struct Entry {
     contents: &'static [u8],
 }
 
-const ENTRIES: [Entry; 3] = [
+const ENTRIES: [Entry; 4] = [
     Entry {
         name: b".",
         ino: 1,
@@ -41,6 +41,12 @@ const ENTRIES: [Entry; 3] = [
         ino: 2,
         etype: INodeType::Reg,
         contents: b"hello\n",
+    },
+    Entry {
+        name: b"link.txt",
+        ino: 3,
+        etype: INodeType::Lnk,
+        contents: b"./test.txt",
     },
 ];
 
@@ -125,6 +131,7 @@ impl fs::FileSystem for RoFs {
     fn read_folio(inode: &INode<Self>, mut folio: LockedFolio<'_>) -> Result {
         let data = match inode.ino() {
             2 => ENTRIES[2].contents,
+            3 => ENTRIES[3].contents,
             _ => return Err(EINVAL),
         };
 

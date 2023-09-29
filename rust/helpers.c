@@ -244,6 +244,12 @@ void rust_helper_mapping_set_large_folios(struct address_space *mapping)
 }
 EXPORT_SYMBOL_GPL(rust_helper_mapping_set_large_folios);
 
+unsigned int rust_helper_MKDEV(unsigned int major, unsigned int minor)
+{
+	return MKDEV(major, minor);
+}
+EXPORT_SYMBOL_GPL(rust_helper_MKDEV);
+
 /*
  * `bindgen` binds the C `size_t` type as the Rust `usize` type, so we can
  * use it in contexts where Rust expects a `usize` like slice (array) indices.
