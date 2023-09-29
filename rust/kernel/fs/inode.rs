@@ -7,13 +7,16 @@
 //! C headers: [`include/linux/fs.h`](srctree/include/linux/fs.h)
 
 use super::{
-    address_space, dentry, dentry::DEntry, file, sb::SuperBlock, FileSystem, Offset, UnspecifiedFS,
+    address_space, dentry, dentry::DEntry, file, sb::SuperBlock, FileSystem, Offset, PageOffset,
+    UnspecifiedFS,
 };
-use crate::error::{code::*, Result};
+use crate::error::{code::*, from_err_ptr, Result};
 use crate::types::{ARef, AlwaysRefCounted, Either, ForeignOwnable, Lockable, Locked, Opaque};
-use crate::{bindings, block, str::CStr, str::CString, time::Timespec};
+use crate::{
+    bindings, block, build_error, folio, folio::Folio, str::CStr, str::CString, time::Timespec,
+};
 use core::mem::ManuallyDrop;
-use core::{marker::PhantomData, ptr};
+use core::{cmp, marker::PhantomData, ops::Deref, ptr};
 use macros::vtable;
 
 /// The number of an inode.
@@ -93,6 +96,125 @@ impl<T: FileSystem + ?Sized> INode<T> {
         // SAFETY: `self` is guaranteed to be valid by the existence of a shared reference.
         unsafe { bindings::i_size_read(self.0.get()) }
     }
+
+    /// Returns a mapper for this inode.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that mappers are unique for a given inode and range. For inodes that
+    /// back a block device, a mapper is always created when the filesystem is mounted; so callers
+    /// in such situations must ensure that that mapper is never used.
+    pub unsafe fn mapper(&self) -> Mapper<T> {
+        Mapper {
+            inode: self.into(),
+            begin: 0,
+            end: Offset::MAX,
+        }
+    }
+
+    /// Returns a mapped folio at the given offset.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that there are no concurrent mutable mappings of the folio.
+    pub unsafe fn mapped_folio(
+        &self,
+        offset: Offset,
+    ) -> Result<folio::Mapped<'_, folio::PageCache<T>>> {
+        let page_index = offset >> bindings::PAGE_SHIFT;
+        let page_offset = offset & ((bindings::PAGE_SIZE - 1) as Offset);
+        let folio = self.read_mapping_folio(page_index.try_into()?)?;
+
+        // SAFETY: The safety requirements guarantee that there are no concurrent mutable mappings
+        // of the folio.
+        unsafe { Folio::map_owned(folio, page_offset.try_into()?) }
+    }
+
+    /// Returns the folio at the given page index.
+    pub fn read_mapping_folio(
+        &self,
+        index: PageOffset,
+    ) -> Result<ARef<Folio<folio::PageCache<T>>>> {
+        let folio = from_err_ptr(unsafe {
+            bindings::read_mapping_folio(
+                (*self.0.get()).i_mapping,
+                index.try_into()?,
+                ptr::null_mut(),
+            )
+        })?;
+        let ptr = ptr::NonNull::new(folio)
+            .ok_or(EIO)?
+            .cast::<Folio<folio::PageCache<T>>>();
+        // SAFETY: The folio returned by read_mapping_folio has had its refcount incremented.
+        Ok(unsafe { ARef::from_raw(ptr) })
+    }
+
+    /// Iterate over the given range, one folio at a time.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that there are no concurrent mutable mappings of the folio.
+    pub unsafe fn for_each_page<U>(
+        &self,
+        first: Offset,
+        len: Offset,
+        mut cb: impl FnMut(&[u8]) -> Result<Option<U>>,
+    ) -> Result<Option<U>> {
+        if first >= self.size() {
+            return Ok(None);
+        }
+        let mut remain = cmp::min(len, self.size() - first);
+        first.checked_add(remain).ok_or(EIO)?;
+
+        let mut next = first;
+        while remain > 0 {
+            // SAFETY: The safety requirements of this function satisfy those of `mapped_folio`.
+            let data = unsafe { self.mapped_folio(next)? };
+            let avail = cmp::min(data.len(), remain.try_into().unwrap_or(usize::MAX));
+            let ret = cb(&data[..avail])?;
+            if ret.is_some() {
+                return Ok(ret);
+            }
+
+            next += avail as Offset;
+            remain -= avail as Offset;
+        }
+
+        Ok(None)
+    }
+}
+
+impl<T: FileSystem + ?Sized, U: Deref<Target = INode<T>>> Locked<U, ReadSem> {
+    /// Returns a mapped folio at the given offset.
+    pub fn mapped_folio<'a>(
+        &'a self,
+        offset: Offset,
+    ) -> Result<folio::Mapped<'a, folio::PageCache<T>>>
+    where
+        T: 'a,
+    {
+        if T::IS_UNSPECIFIED {
+            build_error!("unspecified file systems cannot safely map folios");
+        }
+
+        // SAFETY: The inode is locked in read mode, so it's ok to map its contents.
+        unsafe { self.deref().mapped_folio(offset) }
+    }
+
+    /// Iterate over the given range, one folio at a time.
+    pub fn for_each_page<V>(
+        &self,
+        first: Offset,
+        len: Offset,
+        cb: impl FnMut(&[u8]) -> Result<Option<V>>,
+    ) -> Result<Option<V>> {
+        if T::IS_UNSPECIFIED {
+            build_error!("unspecified file systems cannot safely map folios");
+        }
+
+        // SAFETY: The inode is locked in read mode, so it's ok to map its contents.
+        unsafe { self.deref().for_each_page(first, len, cb) }
+    }
 }
 
 // SAFETY: The type invariants guarantee that `INode` is always ref-counted.
@@ -111,6 +233,7 @@ unsafe impl<T: FileSystem + ?Sized> AlwaysRefCounted for INode<T> {
 /// Indicates that the an inode's rw semapahore is locked in read (shared) mode.
 pub struct ReadSem;
 
+// SAFETY: `raw_lock` calls `inode_lock_shared` which locks the inode in shared mode.
 unsafe impl<T: FileSystem + ?Sized> Lockable<ReadSem> for INode<T> {
     fn raw_lock(&self) {
         // SAFETY: Since there's a reference to the inode, it must be valid.
@@ -430,5 +553,91 @@ impl<T: FileSystem + ?Sized> Ops<T> {
             }
         }
         Self(&Table::<U>::TABLE, PhantomData)
+    }
+}
+
+/// Allows mapping the contents of the inode.
+///
+/// # Invariants
+///
+/// Mappers are unique per range per inode.
+pub struct Mapper<T: FileSystem + ?Sized = UnspecifiedFS> {
+    inode: ARef<INode<T>>,
+    begin: Offset,
+    end: Offset,
+}
+
+// SAFETY: All inode and folio operations are safe from any thread.
+unsafe impl<T: FileSystem + ?Sized> Send for Mapper<T> {}
+
+// SAFETY: All inode and folio operations are safe from any thread.
+unsafe impl<T: FileSystem + ?Sized> Sync for Mapper<T> {}
+
+impl<T: FileSystem + ?Sized> Mapper<T> {
+    /// Splits the mapper into two ranges.
+    ///
+    /// The first range is from the beginning of `self` up to and including `offset - 1`. The
+    /// second range is from `offset` to the end of `self`.
+    pub fn split_at(mut self, offset: Offset) -> (Self, Self) {
+        let inode = self.inode.clone();
+        if offset <= self.begin {
+            (
+                Self {
+                    inode,
+                    begin: offset,
+                    end: offset,
+                },
+                self,
+            )
+        } else if offset >= self.end {
+            (
+                self,
+                Self {
+                    inode,
+                    begin: offset,
+                    end: offset,
+                },
+            )
+        } else {
+            let end = self.end;
+            self.end = offset;
+            (
+                self,
+                Self {
+                    inode,
+                    begin: offset,
+                    end,
+                },
+            )
+        }
+    }
+
+    /// Returns a mapped folio at the given offset.
+    pub fn mapped_folio(&self, offset: Offset) -> Result<folio::Mapped<'_, folio::PageCache<T>>> {
+        if offset < self.begin || offset >= self.end {
+            return Err(ERANGE);
+        }
+
+        // SAFETY: By the type invariant, there are no other mutable mappings of the folio.
+        let mut map = unsafe { self.inode.mapped_folio(offset) }?;
+        map.cap_len((self.end - offset).try_into()?);
+        Ok(map)
+    }
+
+    /// Iterate over the given range, one folio at a time.
+    pub fn for_each_page<U>(
+        &self,
+        first: Offset,
+        len: Offset,
+        cb: impl FnMut(&[u8]) -> Result<Option<U>>,
+    ) -> Result<Option<U>> {
+        if first < self.begin || first >= self.end {
+            return Err(ERANGE);
+        }
+
+        let actual_len = cmp::min(len, self.end - first);
+
+        // SAFETY: By the type invariant, there are no other mutable mappings of the folio.
+        unsafe { self.inode.for_each_page(first, actual_len, cb) }
     }
 }

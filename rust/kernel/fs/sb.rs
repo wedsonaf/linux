@@ -8,10 +8,21 @@
 
 use super::inode::{self, INode, Ino};
 use super::FileSystem;
-use crate::bindings;
 use crate::error::{code::*, Result};
 use crate::types::{ARef, Either, ForeignOwnable, Opaque};
+use crate::{bindings, block, build_error};
 use core::{marker::PhantomData, ptr};
+
+/// Type of superblock keying.
+///
+/// It determines how C's `fs_context_operations::get_tree` is implemented.
+pub enum Type {
+    /// Multiple independent superblocks may exist.
+    Independent,
+
+    /// Uses a block device.
+    BlockDev,
+}
 
 /// A typestate for [`SuperBlock`] that indicates that it's a new one, so not fully initialized
 /// yet.
@@ -75,6 +86,28 @@ impl<T: FileSystem + ?Sized, S> SuperBlock<T, S> {
         // SAFETY: `s_flags` only changes during init, so it is safe to read it.
         unsafe { (*self.0.get()).s_flags & bindings::SB_RDONLY != 0 }
     }
+
+    /// Returns the block device associated with the superblock.
+    pub fn bdev(&self) -> &block::Device {
+        if !matches!(T::SUPER_TYPE, Type::BlockDev) {
+            build_error!("bdev is only available in blockdev superblocks");
+        }
+
+        // SAFETY: The superblock is valid and given that it's a blockdev superblock it must have a
+        // valid `s_bdev` that remains valid while the superblock (`self`) is valid.
+        unsafe { block::Device::from_raw((*self.0.get()).s_bdev) }
+    }
+
+    /// Returns the number of sectors in the underlying block device.
+    pub fn sector_count(&self) -> block::Sector {
+        if !matches!(T::SUPER_TYPE, Type::BlockDev) {
+            build_error!("sector_count is only available in blockdev superblocks");
+        }
+
+        // SAFETY: The superblock is valid and given that it's a blockdev superblock it must have a
+        // valid `s_bdev`.
+        unsafe { bindings::bdev_nr_sectors((*self.0.get()).s_bdev) }
+    }
 }
 
 impl<T: FileSystem + ?Sized> SuperBlock<T, New> {
@@ -84,6 +117,20 @@ impl<T: FileSystem + ?Sized> SuperBlock<T, New> {
         // fields.
         unsafe { (*self.0.get()).s_magic = magic as core::ffi::c_ulong };
         self
+    }
+
+    /// Sets the device blocksize, subjected to the minimum accepted by the device.
+    ///
+    /// Returns the actual value set.
+    pub fn min_blocksize(&mut self, size: i32) -> i32 {
+        if !matches!(T::SUPER_TYPE, Type::BlockDev) {
+            build_error!("min_blocksize is only available in blockdev superblocks");
+        }
+
+        // SAFETY: This a new superblock that is being initialised, so it it's ok to set the block
+        // size. Additionally, we've checked that this is the superblock is backed by a block
+        // device, so it is also valid.
+        unsafe { bindings::sb_min_blocksize(self.0.get(), size) }
     }
 }
 

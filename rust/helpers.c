@@ -21,6 +21,7 @@
  */
 
 #include <kunit/test-bug.h>
+#include <linux/blkdev.h>
 #include <linux/bug.h>
 #include <linux/build_bug.h>
 #include <linux/cacheflush.h>
@@ -252,6 +253,13 @@ void rust_helper_kunmap_local(const void *vaddr)
 }
 EXPORT_SYMBOL_GPL(rust_helper_kunmap_local);
 
+struct folio *rust_helper_read_mapping_folio(struct address_space *mapping,
+					     pgoff_t index, struct file *file)
+{
+	return read_mapping_folio(mapping, index, file);
+}
+EXPORT_SYMBOL_GPL(rust_helper_read_mapping_folio);
+
 void rust_helper_i_uid_write(struct inode *inode, uid_t uid)
 {
 	i_uid_write(inode, uid);
@@ -287,6 +295,12 @@ unsigned int rust_helper_MKDEV(unsigned int major, unsigned int minor)
 	return MKDEV(major, minor);
 }
 EXPORT_SYMBOL_GPL(rust_helper_MKDEV);
+
+sector_t rust_helper_bdev_nr_sectors(struct block_device *bdev)
+{
+	return bdev_nr_sectors(bdev);
+}
+EXPORT_SYMBOL_GPL(rust_helper_bdev_nr_sectors);
 
 unsigned long rust_helper_copy_to_user(void __user *to, const void *from,
 				       unsigned long n)

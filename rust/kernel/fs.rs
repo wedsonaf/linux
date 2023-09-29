@@ -26,6 +26,11 @@ pub mod sb;
 /// This is C's `loff_t`.
 pub type Offset = i64;
 
+/// An index into the page cache.
+///
+/// This is C's `pgoff_t`.
+pub type PageOffset = usize;
+
 /// Maximum size of an inode.
 pub const MAX_LFS_FILESIZE: Offset = bindings::MAX_LFS_FILESIZE;
 
@@ -37,6 +42,9 @@ pub trait FileSystem {
     /// The name of the file system type.
     const NAME: &'static CStr;
 
+    /// Determines how superblocks for this file system type are keyed.
+    const SUPER_TYPE: sb::Type = sb::Type::Independent;
+
     /// Determines if an implementation doesn't specify the required types.
     ///
     /// This is meant for internal use only.
@@ -44,7 +52,10 @@ pub trait FileSystem {
     const IS_UNSPECIFIED: bool = false;
 
     /// Initialises the new superblock and returns the data to attach to it.
-    fn fill_super(sb: &mut SuperBlock<Self, sb::New>) -> Result<Self::Data>;
+    fn fill_super(
+        sb: &mut SuperBlock<Self, sb::New>,
+        mapper: Option<inode::Mapper>,
+    ) -> Result<Self::Data>;
 
     /// Initialises and returns the root inode of the given superblock.
     ///
@@ -100,7 +111,7 @@ impl FileSystem for UnspecifiedFS {
     type Data = ();
     const NAME: &'static CStr = crate::c_str!("unspecified");
     const IS_UNSPECIFIED: bool = true;
-    fn fill_super(_: &mut SuperBlock<Self, sb::New>) -> Result {
+    fn fill_super(_: &mut SuperBlock<Self, sb::New>, _: Option<inode::Mapper>) -> Result {
         Err(ENOTSUPP)
     }
 
@@ -139,7 +150,9 @@ impl Registration {
                 fs.name = T::NAME.as_char_ptr();
                 fs.init_fs_context = Some(Self::init_fs_context_callback::<T>);
                 fs.kill_sb = Some(Self::kill_sb_callback::<T>);
-                fs.fs_flags = 0;
+                fs.fs_flags = if let sb::Type::BlockDev = T::SUPER_TYPE {
+                    bindings::FS_REQUIRES_DEV as i32
+                } else { 0 };
 
                 // SAFETY: Pointers stored in `fs` are static so will live for as long as the
                 // registration is active (it is undone in `drop`).
@@ -162,9 +175,16 @@ impl Registration {
     unsafe extern "C" fn kill_sb_callback<T: FileSystem + ?Sized>(
         sb_ptr: *mut bindings::super_block,
     ) {
-        // SAFETY: In `get_tree_callback` we always call `get_tree_nodev`, so `kill_anon_super` is
-        // the appropriate function to call for cleanup.
-        unsafe { bindings::kill_anon_super(sb_ptr) };
+        match T::SUPER_TYPE {
+            // SAFETY: In `get_tree_callback` we always call `get_tree_bdev` for
+            // `sb::Type::BlockDev`, so `kill_block_super` is the appropriate function to call
+            // for cleanup.
+            sb::Type::BlockDev => unsafe { bindings::kill_block_super(sb_ptr) },
+            // SAFETY: In `get_tree_callback` we always call `get_tree_nodev` for
+            // `sb::Type::Independent`, so `kill_anon_super` is the appropriate function to call
+            // for cleanup.
+            sb::Type::Independent => unsafe { bindings::kill_anon_super(sb_ptr) },
+        }
 
         // SAFETY: The C API contract guarantees that `sb_ptr` is valid for read.
         let ptr = unsafe { (*sb_ptr).s_fs_info };
@@ -200,9 +220,18 @@ impl<T: FileSystem + ?Sized> Tables<T> {
     };
 
     unsafe extern "C" fn get_tree_callback(fc: *mut bindings::fs_context) -> ffi::c_int {
-        // SAFETY: `fc` is valid per the callback contract. `fill_super_callback` also has
-        // the right type and is a valid callback.
-        unsafe { bindings::get_tree_nodev(fc, Some(Self::fill_super_callback)) }
+        match T::SUPER_TYPE {
+            // SAFETY: `fc` is valid per the callback contract. `fill_super_callback` also has
+            // the right type and is a valid callback.
+            sb::Type::BlockDev => unsafe {
+                bindings::get_tree_bdev(fc, Some(Self::fill_super_callback))
+            },
+            // SAFETY: `fc` is valid per the callback contract. `fill_super_callback` also has
+            // the right type and is a valid callback.
+            sb::Type::Independent => unsafe {
+                bindings::get_tree_nodev(fc, Some(Self::fill_super_callback))
+            },
+        }
     }
 
     unsafe extern "C" fn fill_super_callback(
@@ -221,7 +250,14 @@ impl<T: FileSystem + ?Sized> Tables<T> {
             sb.s_xattr = &Tables::<T>::XATTR_HANDLERS[0];
             sb.s_flags |= bindings::SB_RDONLY;
 
-            let data = T::fill_super(new_sb)?;
+            let mapper = if matches!(T::SUPER_TYPE, sb::Type::BlockDev) {
+                // SAFETY: This is the only mapper created for this inode, so it is unique.
+                Some(unsafe { new_sb.bdev().inode().mapper() })
+            } else {
+                None
+            };
+
+            let data = T::fill_super(new_sb, mapper)?;
 
             // N.B.: Even on failure, `kill_sb` is called and frees the data.
             sb.s_fs_info = data.into_foreign().cast_mut();
@@ -369,7 +405,7 @@ impl<T: FileSystem + ?Sized + Sync + Send> crate::InPlaceModule for Module<T> {
 ///
 /// ```
 /// # mod module_fs_sample {
-/// use kernel::fs::{dentry, inode::INode, sb, sb::SuperBlock, self};
+/// use kernel::fs::{dentry, inode::INode, inode::Mapper, sb, sb::SuperBlock, self};
 /// use kernel::prelude::*;
 ///
 /// kernel::module_fs! {
@@ -384,7 +420,7 @@ impl<T: FileSystem + ?Sized + Sync + Send> crate::InPlaceModule for Module<T> {
 /// impl fs::FileSystem for MyFs {
 ///     type Data = ();
 ///     const NAME: &'static CStr = kernel::c_str!("myfs");
-///     fn fill_super(_: &mut SuperBlock<Self, sb::New>) -> Result {
+///     fn fill_super(_: &mut SuperBlock<Self, sb::New>, _: Option<Mapper>) -> Result {
 ///         todo!()
 ///     }
 ///     fn init_root(_sb: &SuperBlock<Self>) -> Result<dentry::Root<Self>> {
