@@ -6,7 +6,7 @@ use kernel::fs::{
     DirEmitter, INode, INodeParams, INodeType, NewSuperBlock, SuperBlock, SuperParams,
 };
 use kernel::prelude::*;
-use kernel::{c_str, fs, time::UNIX_EPOCH, types::ARef, types::Either};
+use kernel::{c_str, folio::LockedFolio, fs, time::UNIX_EPOCH, types::ARef, types::Either};
 
 kernel::module_fs! {
     type: RoFs,
@@ -20,6 +20,7 @@ struct Entry {
     name: &'static [u8],
     ino: u64,
     etype: INodeType,
+    contents: &'static [u8],
 }
 
 const ENTRIES: [Entry; 3] = [
@@ -27,16 +28,19 @@ const ENTRIES: [Entry; 3] = [
         name: b".",
         ino: 1,
         etype: INodeType::Dir,
+        contents: b"",
     },
     Entry {
         name: b"..",
         ino: 1,
         etype: INodeType::Dir,
+        contents: b"",
     },
     Entry {
-        name: b"subdir",
+        name: b"test.txt",
         ino: 2,
-        etype: INodeType::Dir,
+        etype: INodeType::Reg,
+        contents: b"hello\n",
     },
 ];
 
@@ -95,23 +99,48 @@ impl fs::FileSystem for RoFs {
             return Err(ENOENT);
         }
 
-        match name {
-            b"subdir" => match parent.super_block().get_or_create_inode(2)? {
-                Either::Left(existing) => Ok(existing),
-                Either::Right(new) => new.init(INodeParams {
-                    typ: INodeType::Dir,
-                    mode: 0o555,
-                    size: 0,
-                    blocks: 1,
-                    nlink: 2,
-                    uid: 0,
-                    gid: 0,
-                    atime: UNIX_EPOCH,
-                    ctime: UNIX_EPOCH,
-                    mtime: UNIX_EPOCH,
-                }),
-            },
-            _ => Err(ENOENT),
+        for e in &ENTRIES {
+            if name == e.name {
+                return match parent.super_block().get_or_create_inode(e.ino)? {
+                    Either::Left(existing) => Ok(existing),
+                    Either::Right(new) => new.init(INodeParams {
+                        typ: e.etype,
+                        mode: 0o444,
+                        size: e.contents.len().try_into()?,
+                        blocks: 1,
+                        nlink: 1,
+                        uid: 0,
+                        gid: 0,
+                        atime: UNIX_EPOCH,
+                        ctime: UNIX_EPOCH,
+                        mtime: UNIX_EPOCH,
+                    }),
+                };
+            }
         }
+
+        Err(ENOENT)
+    }
+
+    fn read_folio(inode: &INode<Self>, mut folio: LockedFolio<'_>) -> Result {
+        let data = match inode.ino() {
+            2 => ENTRIES[2].contents,
+            _ => return Err(EINVAL),
+        };
+
+        let pos = usize::try_from(folio.pos()).unwrap_or(usize::MAX);
+        let copied = if pos >= data.len() {
+            0
+        } else {
+            let to_copy = core::cmp::min(data.len() - pos, folio.size());
+            folio.write(0, &data[pos..][..to_copy])?;
+            to_copy
+        };
+
+        folio.zero_out(copied, folio.size() - copied)?;
+        folio.mark_uptodate();
+        folio.flush_dcache();
+
+        Ok(())
     }
 }

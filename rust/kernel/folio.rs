@@ -123,7 +123,6 @@ impl LockedFolio<'_> {
     /// Callers must ensure that the folio is valid and locked. Additionally, that the
     /// responsibility of unlocking is transferred to the new instance of [`LockedFolio`]. Lastly,
     /// that the returned [`LockedFolio`] doesn't outlive the refcount that keeps it alive.
-    #[allow(dead_code)]
     pub(crate) unsafe fn from_raw(folio: *const bindings::folio) -> Self {
         let ptr = folio.cast();
         // SAFETY: The safety requirements ensure that `folio` (from which `ptr` is derived) is

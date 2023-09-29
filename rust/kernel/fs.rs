@@ -8,7 +8,10 @@
 
 use crate::error::{code::*, from_result, to_result, Error, Result};
 use crate::types::{ARef, AlwaysRefCounted, Either, Opaque};
-use crate::{bindings, init::PinInit, str::CStr, time::Timespec, try_pin_init, ThisModule};
+use crate::{
+    bindings, folio::LockedFolio, init::PinInit, str::CStr, time::Timespec, try_pin_init,
+    ThisModule,
+};
 use core::{marker::PhantomData, marker::PhantomPinned, mem::ManuallyDrop, pin::Pin, ptr};
 use macros::{pin_data, pinned_drop};
 
@@ -36,6 +39,9 @@ pub trait FileSystem {
 
     /// Returns the inode corresponding to the directory entry with the given name.
     fn lookup(parent: &INode<Self>, name: &[u8]) -> Result<ARef<INode<Self>>>;
+
+    /// Reads the contents of the inode into the given folio.
+    fn read_folio(inode: &INode<Self>, folio: LockedFolio<'_>) -> Result;
 }
 
 /// The types of directory entries reported by [`FileSystem::read_dir`].
@@ -74,6 +80,7 @@ impl From<INodeType> for DirEntryType {
     fn from(value: INodeType) -> Self {
         match value {
             INodeType::Dir => DirEntryType::Dir,
+            INodeType::Reg => DirEntryType::Reg,
         }
     }
 }
@@ -232,6 +239,15 @@ impl<T: FileSystem + ?Sized> NewINode<T> {
                 inode.i_op = &Tables::<T>::DIR_INODE_OPERATIONS;
                 bindings::S_IFDIR
             }
+            INodeType::Reg => {
+                // SAFETY: `generic_ro_fops` never changes, it's safe to reference it.
+                inode.__bindgen_anon_3.i_fop = unsafe { &bindings::generic_ro_fops };
+                inode.i_data.a_ops = &Tables::<T>::FILE_ADDRESS_SPACE_OPERATIONS;
+
+                // SAFETY: The `i_mapping` pointer doesn't change and is valid.
+                unsafe { bindings::mapping_set_large_folios(inode.i_mapping) };
+                bindings::S_IFREG
+            }
         };
 
         inode.i_mode = (params.mode & 0o777) | u16::try_from(mode)?;
@@ -268,6 +284,9 @@ impl<T: FileSystem + ?Sized> Drop for NewINode<T> {
 pub enum INodeType {
     /// Directory type.
     Dir,
+
+    /// Regular file type.
+    Reg,
 }
 
 /// Required inode parameters.
@@ -588,6 +607,55 @@ impl<T: FileSystem + ?Sized> Tables<T> {
             },
         }
     }
+
+    const FILE_ADDRESS_SPACE_OPERATIONS: bindings::address_space_operations =
+        bindings::address_space_operations {
+            writepage: None,
+            read_folio: Some(Self::read_folio_callback),
+            writepages: None,
+            dirty_folio: None,
+            readahead: None,
+            write_begin: None,
+            write_end: None,
+            bmap: None,
+            invalidate_folio: None,
+            release_folio: None,
+            free_folio: None,
+            direct_IO: None,
+            migrate_folio: None,
+            launder_folio: None,
+            is_partially_uptodate: None,
+            is_dirty_writeback: None,
+            error_remove_page: None,
+            swap_activate: None,
+            swap_deactivate: None,
+            swap_rw: None,
+        };
+
+    extern "C" fn read_folio_callback(
+        _file: *mut bindings::file,
+        folio: *mut bindings::folio,
+    ) -> i32 {
+        from_result(|| {
+            // SAFETY: All pointers are valid and stable.
+            let inode = unsafe {
+                &*(*(*folio)
+                    .__bindgen_anon_1
+                    .page
+                    .__bindgen_anon_1
+                    .__bindgen_anon_1
+                    .mapping)
+                    .host
+                    .cast::<INode<T>>()
+            };
+
+            // SAFETY: The C contract guarantees that the folio is valid and locked, with ownership
+            // of the lock transferred to the callee (this function). The folio is also guaranteed
+            // not to outlive this function.
+            T::read_folio(inode, unsafe { LockedFolio::from_raw(folio) })?;
+            Ok(0)
+        })
+    }
 }
 
 /// Directory entry emitter.
@@ -673,7 +741,7 @@ impl<T: FileSystem + ?Sized + Sync + Send> crate::InPlaceModule for Module<T> {
 /// # mod module_fs_sample {
 /// use kernel::fs::{DirEmitter, INode, NewSuperBlock, SuperBlock, SuperParams};
 /// use kernel::prelude::*;
-/// use kernel::{c_str, fs, types::ARef};
+/// use kernel::{c_str, folio::LockedFolio, fs, types::ARef};
 ///
 /// kernel::module_fs! {
 ///     type: MyFs,
@@ -696,6 +764,9 @@ impl<T: FileSystem + ?Sized + Sync + Send> crate::InPlaceModule for Module<T> {
 ///         todo!()
 ///     }
 ///     fn lookup(_: &INode<Self>, _: &[u8]) -> Result<ARef<INode<Self>>> {
+///         todo!()
+///     }
+///     fn read_folio(_: &INode<Self>, _: LockedFolio<'_>) -> Result {
 ///         todo!()
 ///     }
 /// }
