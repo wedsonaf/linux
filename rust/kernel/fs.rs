@@ -42,6 +42,14 @@ pub trait FileSystem {
 
     /// Reads the contents of the inode into the given folio.
     fn read_folio(inode: &INode<Self>, folio: LockedFolio<'_>) -> Result;
+
+    /// Reads an xattr.
+    ///
+    /// Returns the number of bytes written to `outbuf`. If it is too small, returns the number of
+    /// bytes needs to hold the attribute.
+    fn read_xattr(_inode: &INode<Self>, _name: &CStr, _outbuf: &mut [u8]) -> Result<usize> {
+        Err(EOPNOTSUPP)
+    }
 }
 
 /// The types of directory entries reported by [`FileSystem::read_dir`].
@@ -418,6 +426,7 @@ impl<T: FileSystem + ?Sized> Tables<T> {
 
             sb.0.s_magic = params.magic as _;
             sb.0.s_op = &Tables::<T>::SUPER_BLOCK;
+            sb.0.s_xattr = &Tables::<T>::XATTR_HANDLERS[0];
             sb.0.s_maxbytes = params.maxbytes;
             sb.0.s_time_gran = params.time_gran;
             sb.0.s_blocksize_bits = params.blocksize_bits;
@@ -486,6 +495,40 @@ impl<T: FileSystem + ?Sized> Tables<T> {
         free_cached_objects: None,
         shutdown: None,
     };
+
+    const XATTR_HANDLERS: [*const bindings::xattr_handler; 2] = [&Self::XATTR_HANDLER, ptr::null()];
+
+    const XATTR_HANDLER: bindings::xattr_handler = bindings::xattr_handler {
+        name: ptr::null(),
+        prefix: crate::c_str!("").as_char_ptr(),
+        flags: 0,
+        list: None,
+        get: Some(Self::xattr_get_callback),
+        set: None,
+    };
+
+    unsafe extern "C" fn xattr_get_callback(
+        _handler: *const bindings::xattr_handler,
+        _dentry: *mut bindings::dentry,
+        inode_ptr: *mut bindings::inode,
+        name: *const core::ffi::c_char,
+        buffer: *mut core::ffi::c_void,
+        size: usize,
+    ) -> core::ffi::c_int {
+        from_result(|| {
+            // SAFETY: The C API guarantees that `inode_ptr` is a valid inode.
+            let inode = unsafe { &*inode_ptr.cast::<INode<T>>() };
+
+            // SAFETY: The c API guarantees that `name` is a valid null-terminated string. It
+            // also guarantees that it's valid for the duration of the callback.
+            let name = unsafe { CStr::from_char_ptr(name) };
+
+            // SAFETY: The C API guarantees that `buffer` is at least `size` bytes in length.
+            let buf = unsafe { core::slice::from_raw_parts_mut(buffer.cast(), size) };
+            let len = T::read_xattr(inode, name, buf)?;
+            Ok(len.try_into()?)
+        })
+    }
 
     const DIR_FILE_OPERATIONS: bindings::file_operations = bindings::file_operations {
         owner: ptr::null_mut(),
