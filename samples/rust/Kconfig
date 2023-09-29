@@ -41,6 +41,16 @@ config SAMPLE_RUST_PRINT
 
 	  If unsure, say N.
 
+config SAMPLE_RUST_ROFS
+	tristate "Read-only file system"
+	help
+	  This option builds the Rust read-only file system sample.
+
+	  To compile this as a module, choose M here:
+	  the module will be called rust_rofs.
+
+	  If unsure, say N.
+
 config SAMPLE_RUST_HOSTPROGS
 	bool "Host programs"
 	help
