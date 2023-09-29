@@ -260,6 +260,13 @@ struct folio *rust_helper_read_mapping_folio(struct address_space *mapping,
 }
 EXPORT_SYMBOL_GPL(rust_helper_read_mapping_folio);
 
+void *rust_helper_alloc_inode_sb(struct super_block *sb,
+				 struct kmem_cache *cache, gfp_t gfp)
+{
+	return alloc_inode_sb(sb, cache, gfp);
+}
+EXPORT_SYMBOL_GPL(rust_helper_alloc_inode_sb);
+
 void rust_helper_i_uid_write(struct inode *inode, uid_t uid)
 {
 	i_uid_write(inode, uid);

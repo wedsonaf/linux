@@ -8,8 +8,8 @@
 
 use crate::error::{code::*, from_result, to_result, Error, Result};
 use crate::types::{ForeignOwnable, Opaque};
-use crate::{bindings, init::PinInit, str::CStr, try_pin_init, ThisModule};
-use core::{ffi, marker::PhantomData, mem::ManuallyDrop, pin::Pin, ptr};
+use crate::{bindings, init::PinInit, mem_cache::MemCache, str::CStr, try_pin_init, ThisModule};
+use core::{ffi, marker::PhantomData, mem::size_of, mem::ManuallyDrop, pin::Pin, ptr};
 use dentry::DEntry;
 use inode::INode;
 use macros::{pin_data, pinned_drop};
@@ -38,6 +38,9 @@ pub const MAX_LFS_FILESIZE: Offset = bindings::MAX_LFS_FILESIZE;
 pub trait FileSystem {
     /// Data associated with each file system instance (super-block).
     type Data: ForeignOwnable + Send + Sync;
+
+    /// Type of data associated with each inode.
+    type INodeData: Send + Sync;
 
     /// The name of the file system type.
     const NAME: &'static CStr;
@@ -109,6 +112,7 @@ pub struct UnspecifiedFS;
 
 impl FileSystem for UnspecifiedFS {
     type Data = ();
+    type INodeData = ();
     const NAME: &'static CStr = crate::c_str!("unspecified");
     const IS_UNSPECIFIED: bool = true;
     fn fill_super(_: &mut SuperBlock<Self, sb::New>, _: Option<inode::Mapper>) -> Result {
@@ -125,6 +129,7 @@ impl FileSystem for UnspecifiedFS {
 pub struct Registration {
     #[pin]
     fs: Opaque<bindings::file_system_type>,
+    inode_cache: Option<MemCache>,
 }
 
 // SAFETY: `Registration` doesn't provide any `&self` methods, so it is safe to pass references
@@ -139,6 +144,7 @@ impl Registration {
     /// Creates the initialiser of a new file system registration.
     pub fn new<T: FileSystem + ?Sized>(module: &'static ThisModule) -> impl PinInit<Self, Error> {
         try_pin_init!(Self {
+            inode_cache: INode::<T>::new_cache()?,
             fs <- Opaque::try_ffi_init(|fs_ptr: *mut bindings::file_system_type| {
                 // SAFETY: `try_ffi_init` guarantees that `fs_ptr` is valid for write.
                 unsafe { fs_ptr.write(bindings::file_system_type::default()) };
@@ -284,8 +290,12 @@ impl<T: FileSystem + ?Sized> Tables<T> {
     }
 
     const SUPER_BLOCK: bindings::super_operations = bindings::super_operations {
-        alloc_inode: None,
-        destroy_inode: None,
+        alloc_inode: if size_of::<T::INodeData>() != 0 {
+            Some(INode::<T>::alloc_inode_callback)
+        } else {
+            None
+        },
+        destroy_inode: Some(INode::<T>::destroy_inode_callback),
         free_inode: None,
         dirty_inode: None,
         write_inode: None,
@@ -419,6 +429,7 @@ impl<T: FileSystem + ?Sized + Sync + Send> crate::InPlaceModule for Module<T> {
 /// struct MyFs;
 /// impl fs::FileSystem for MyFs {
 ///     type Data = ();
+///     type INodeData = ();
 ///     const NAME: &'static CStr = kernel::c_str!("myfs");
 ///     fn fill_super(_: &mut SuperBlock<Self, sb::New>, _: Option<Mapper>) -> Result {
 ///         todo!()
