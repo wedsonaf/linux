@@ -10,19 +10,37 @@ use super::inode::{self, INode, Ino};
 use super::FileSystem;
 use crate::bindings;
 use crate::error::{code::*, Result};
-use crate::types::{ARef, Either, Opaque};
+use crate::types::{ARef, Either, ForeignOwnable, Opaque};
 use core::{marker::PhantomData, ptr};
+
+/// A typestate for [`SuperBlock`] that indicates that it's a new one, so not fully initialized
+/// yet.
+pub struct New;
+
+/// A typestate for [`SuperBlock`] that indicates that it's ready to be used.
+pub struct Ready;
+
+// SAFETY: Instances of `SuperBlock<T, Ready>` are only created after initialising the data.
+unsafe impl DataInited for Ready {}
+
+/// Indicates that a superblock in this typestate has data initialized.
+///
+/// # Safety
+///
+/// Implementers must ensure that `s_fs_info` is properly initialised in this state.
+#[doc(hidden)]
+pub unsafe trait DataInited {}
 
 /// A file system super block.
 ///
 /// Wraps the kernel's `struct super_block`.
 #[repr(transparent)]
-pub struct SuperBlock<T: FileSystem + ?Sized>(
+pub struct SuperBlock<T: FileSystem + ?Sized, S = Ready>(
     pub(crate) Opaque<bindings::super_block>,
-    PhantomData<T>,
+    PhantomData<(S, T)>,
 );
 
-impl<T: FileSystem + ?Sized> SuperBlock<T> {
+impl<T: FileSystem + ?Sized, S> SuperBlock<T, S> {
     /// Creates a new superblock reference from the given raw pointer.
     ///
     /// # Safety
@@ -31,6 +49,7 @@ impl<T: FileSystem + ?Sized> SuperBlock<T> {
     ///
     /// * `ptr` is valid and remains so for the lifetime of the returned object.
     /// * `ptr` has the correct file system type, or `T` is [`super::UnspecifiedFS`].
+    /// * `ptr` in the right typestate.
     pub(crate) unsafe fn from_raw<'a>(ptr: *mut bindings::super_block) -> &'a Self {
         // SAFETY: The safety requirements guarantee that the cast below is ok.
         unsafe { &*ptr.cast::<Self>() }
@@ -44,6 +63,7 @@ impl<T: FileSystem + ?Sized> SuperBlock<T> {
     ///
     /// * `ptr` is valid and remains so for the lifetime of the returned object.
     /// * `ptr` has the correct file system type, or `T` is [`super::UnspecifiedFS`].
+    /// * `ptr` in the right typestate.
     /// * `ptr` is the only active pointer to the superblock.
     pub(crate) unsafe fn from_raw_mut<'a>(ptr: *mut bindings::super_block) -> &'a mut Self {
         // SAFETY: The safety requirements guarantee that the cast below is ok.
@@ -55,7 +75,9 @@ impl<T: FileSystem + ?Sized> SuperBlock<T> {
         // SAFETY: `s_flags` only changes during init, so it is safe to read it.
         unsafe { (*self.0.get()).s_flags & bindings::SB_RDONLY != 0 }
     }
+}
 
+impl<T: FileSystem + ?Sized> SuperBlock<T, New> {
     /// Sets the magic number of the superblock.
     pub fn set_magic(&mut self, magic: usize) -> &mut Self {
         // SAFETY: This is a new superblock that is being initialised, so it's ok to write to its
@@ -63,8 +85,26 @@ impl<T: FileSystem + ?Sized> SuperBlock<T> {
         unsafe { (*self.0.get()).s_magic = magic as core::ffi::c_ulong };
         self
     }
+}
+
+impl<T: FileSystem + ?Sized, S: DataInited> SuperBlock<T, S> {
+    /// Returns the data associated with the superblock.
+    pub fn data(&self) -> <T::Data as ForeignOwnable>::Borrowed<'_> {
+        if T::IS_UNSPECIFIED {
+            crate::build_error!("super block data type is unspecified");
+        }
+
+        // SAFETY: This method is only available if the typestate implements `DataInited`, whose
+        // safety requirements include `s_fs_info` being properly initialised.
+        let ptr = unsafe { (*self.0.get()).s_fs_info };
+        unsafe { T::Data::borrow(ptr) }
+    }
 
     /// Tries to get an existing inode or create a new one if it doesn't exist yet.
+    ///
+    /// This method is not callable from a superblock where data isn't inited yet because it would
+    /// allow one to get access to the uninited data via `inode::New::init()` ->
+    /// `INode::super_block()` -> `SuperBlock::data()`.
     pub fn get_or_create_inode(&self, ino: Ino) -> Result<Either<ARef<INode<T>>, inode::New<T>>> {
         // SAFETY: All superblock-related state needed by `iget_locked` is initialised by C code
         // before calling `fill_super_callback`, or by `fill_super_callback` itself before calling

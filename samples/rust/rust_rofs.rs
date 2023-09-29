@@ -98,9 +98,10 @@ impl RoFs {
 }
 
 impl fs::FileSystem for RoFs {
+    type Data = ();
     const NAME: &'static CStr = c_str!("rust_rofs");
 
-    fn fill_super(sb: &mut sb::SuperBlock<Self>) -> Result {
+    fn fill_super(sb: &mut sb::SuperBlock<Self, sb::New>) -> Result {
         sb.set_magic(0x52555354);
         Ok(())
     }
