@@ -7,11 +7,9 @@
 //! C headers: [`include/linux/fs.h`](../../include/linux/fs.h)
 
 use crate::error::{code::*, from_result, to_result, Error, Result};
-use crate::types::{ARef, AlwaysRefCounted, Either, ForeignOwnable, Opaque};
-use crate::{
-    bindings, folio::LockedFolio, init::PinInit, str::CStr, time::Timespec, try_pin_init,
-    ThisModule,
-};
+use crate::folio::{LockedFolio, UniqueFolio};
+use crate::types::{ARef, AlwaysRefCounted, Either, ForeignOwnable, Opaque, ScopeGuard};
+use crate::{bindings, init::PinInit, str::CStr, time::Timespec, try_pin_init, ThisModule};
 use core::{marker::PhantomData, marker::PhantomPinned, mem::ManuallyDrop, pin::Pin, ptr};
 use macros::{pin_data, pinned_drop};
 
@@ -21,6 +19,17 @@ pub mod buffer;
 /// Maximum size of an inode.
 pub const MAX_LFS_FILESIZE: i64 = bindings::MAX_LFS_FILESIZE;
 
+/// Type of superblock keying.
+///
+/// It determines how C's `fs_context_operations::get_tree` is implemented.
+pub enum Super {
+    /// Multiple independent superblocks may exist.
+    Independent,
+
+    /// Uses a block device.
+    BlockDev,
+}
+
 /// A file system type.
 pub trait FileSystem {
     /// Data associated with each file system instance (super-block).
@@ -28,6 +37,9 @@ pub trait FileSystem {
 
     /// The name of the file system type.
     const NAME: &'static CStr;
+
+    /// Determines how superblocks for this file system type are keyed.
+    const SUPER_TYPE: Super = Super::Independent;
 
     /// Returns the parameters to initialise a super block.
     fn super_params(sb: &NewSuperBlock<Self>) -> Result<SuperParams<Self::Data>>;
@@ -181,7 +193,9 @@ impl Registration {
                 fs.name = T::NAME.as_char_ptr();
                 fs.init_fs_context = Some(Self::init_fs_context_callback::<T>);
                 fs.kill_sb = Some(Self::kill_sb_callback::<T>);
-                fs.fs_flags = 0;
+                fs.fs_flags = if let Super::BlockDev = T::SUPER_TYPE {
+                    bindings::FS_REQUIRES_DEV as i32
+                } else { 0 };
 
                 // SAFETY: Pointers stored in `fs` are static so will live for as long as the
                 // registration is active (it is undone in `drop`).
@@ -204,9 +218,16 @@ impl Registration {
     unsafe extern "C" fn kill_sb_callback<T: FileSystem + ?Sized>(
         sb_ptr: *mut bindings::super_block,
     ) {
-        // SAFETY: In `get_tree_callback` we always call `get_tree_nodev`, so `kill_anon_super` is
-        // the appropriate function to call for cleanup.
-        unsafe { bindings::kill_anon_super(sb_ptr) };
+        match T::SUPER_TYPE {
+            // SAFETY: In `get_tree_callback` we always call `get_tree_bdev` for
+            // `Super::BlockDev`, so `kill_block_super` is the appropriate function to call
+            // for cleanup.
+            Super::BlockDev => unsafe { bindings::kill_block_super(sb_ptr) },
+            // SAFETY: In `get_tree_callback` we always call `get_tree_nodev` for
+            // `Super::Independent`, so `kill_anon_super` is the appropriate function to call
+            // for cleanup.
+            Super::Independent => unsafe { bindings::kill_anon_super(sb_ptr) },
+        }
 
         // SAFETY: The C API contract guarantees that `sb_ptr` is valid for read.
         let ptr = unsafe { (*sb_ptr).s_fs_info };
@@ -479,6 +500,65 @@ impl<T: FileSystem + ?Sized> SuperBlock<T> {
             })))
         }
     }
+
+    /// Reads a block from the block device.
+    #[cfg(CONFIG_BUFFER_HEAD)]
+    pub fn bread(&self, block: u64) -> Result<ARef<buffer::Head>> {
+        // Fail requests for non-blockdev file systems. This is a compile-time check.
+        match T::SUPER_TYPE {
+            Super::BlockDev => {}
+            _ => return Err(EIO),
+        }
+
+        // SAFETY: This function is only valid after the `NeedsInit` typestate, so the block size
+        // is known and the superblock can be used to read blocks.
+        let ptr =
+            ptr::NonNull::new(unsafe { bindings::sb_bread(self.0.get(), block) }).ok_or(EIO)?;
+        // SAFETY: `sb_bread` returns a referenced buffer head. Ownership of the increment is
+        // passed to the `ARef` instance.
+        Ok(unsafe { ARef::from_raw(ptr.cast()) })
+    }
+
+    /// Reads `size` bytes starting from `offset` bytes.
+    ///
+    /// Returns an iterator that returns slices based on blocks.
+    #[cfg(CONFIG_BUFFER_HEAD)]
+    pub fn read(
+        &self,
+        offset: u64,
+        size: u64,
+    ) -> Result<impl Iterator<Item = Result<buffer::View>> + '_> {
+        struct BlockIter<'a, T: FileSystem + ?Sized> {
+            sb: &'a SuperBlock<T>,
+            next_offset: u64,
+            end: u64,
+        }
+        impl<'a, T: FileSystem + ?Sized> Iterator for BlockIter<'a, T> {
+            type Item = Result<buffer::View>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.next_offset >= self.end {
+                    return None;
+                }
+
+                // SAFETY: The superblock is valid and has had its block size initialised.
+                let block_size = unsafe { (*self.sb.0.get()).s_blocksize };
+                let bh = match self.sb.bread(self.next_offset / block_size) {
+                    Ok(bh) => bh,
+                    Err(e) => return Some(Err(e)),
+                };
+                let boffset = self.next_offset & (block_size - 1);
+                let bsize = core::cmp::min(self.end - self.next_offset, block_size - boffset);
+                self.next_offset += bsize;
+                Some(Ok(buffer::View::new(bh, boffset as usize, bsize as usize)))
+            }
+        }
+        Ok(BlockIter {
+            sb: self,
+            next_offset: offset,
+            end: offset.checked_add(size).ok_or(ERANGE)?,
+        })
+    }
 }
 
 /// Required superblock parameters.
@@ -511,6 +591,70 @@ pub struct SuperParams<T: ForeignOwnable + Send + Sync> {
 #[repr(transparent)]
 pub struct NewSuperBlock<T: FileSystem + ?Sized>(bindings::super_block, PhantomData<T>);
 
+impl<T: FileSystem + ?Sized> NewSuperBlock<T> {
+    /// Reads sectors.
+    ///
+    /// `count` must be such that the total size doesn't exceed a page.
+    pub fn sread(&self, sector: u64, count: usize, folio: &mut UniqueFolio) -> Result {
+        // Fail requests for non-blockdev file systems. This is a compile-time check.
+        match T::SUPER_TYPE {
+            // The superblock is valid and given that it's a blockdev superblock it must have a
+            // valid `s_bdev`.
+            Super::BlockDev => {}
+            _ => return Err(EIO),
+        }
+
+        crate::build_assert!(count * (bindings::SECTOR_SIZE as usize) <= bindings::PAGE_SIZE);
+
+        // Read the sectors.
+        let mut bio = bindings::bio::default();
+        let bvec = Opaque::<bindings::bio_vec>::uninit();
+
+        // SAFETY: `bio` and `bvec` are allocated on the stack, they're both valid.
+        unsafe {
+            bindings::bio_init(
+                &mut bio,
+                self.0.s_bdev,
+                bvec.get(),
+                1,
+                bindings::req_op_REQ_OP_READ,
+            )
+        };
+
+        // SAFETY: `bio` was just initialised with `bio_init` above, so it's safe to call
+        // `bio_uninit` on the way out.
+        let mut bio =
+            ScopeGuard::new_with_data(bio, |mut b| unsafe { bindings::bio_uninit(&mut b) });
+
+        // SAFETY: We have one free `bvec` (initialsied above). We also know that size won't exceed
+        // a page size (build_assert above).
+        unsafe {
+            bindings::bio_add_folio_nofail(
+                &mut *bio,
+                folio.0 .0.get(),
+                count * (bindings::SECTOR_SIZE as usize),
+                0,
+            )
+        };
+        bio.bi_iter.bi_sector = sector;
+
+        // SAFETY: The bio was fully initialised above.
+        to_result(unsafe { bindings::submit_bio_wait(&mut *bio) })?;
+        Ok(())
+    }
+
+    /// Returns the number of sectors in the underlying block device.
+    pub fn sector_count(&self) -> Result<u64> {
+        // Fail requests for non-blockdev file systems. This is a compile-time check.
+        match T::SUPER_TYPE {
+            // The superblock is valid and given that it's a blockdev superblock it must have a
+            // valid `s_bdev`.
+            Super::BlockDev => Ok(unsafe { bindings::bdev_nr_sectors(self.0.s_bdev) }),
+            _ => Err(EIO),
+        }
+    }
+}
+
 struct Tables<T: FileSystem + ?Sized>(T);
 impl<T: FileSystem + ?Sized> Tables<T> {
     const CONTEXT: bindings::fs_context_operations = bindings::fs_context_operations {
@@ -523,9 +667,18 @@ impl<T: FileSystem + ?Sized> Tables<T> {
     };
 
     unsafe extern "C" fn get_tree_callback(fc: *mut bindings::fs_context) -> core::ffi::c_int {
-        // SAFETY: `fc` is valid per the callback contract. `fill_super_callback` also has
-        // the right type and is a valid callback.
-        unsafe { bindings::get_tree_nodev(fc, Some(Self::fill_super_callback)) }
+        match T::SUPER_TYPE {
+            // SAFETY: `fc` is valid per the callback contract. `fill_super_callback` also has
+            // the right type and is a valid callback.
+            Super::BlockDev => unsafe {
+                bindings::get_tree_bdev(fc, Some(Self::fill_super_callback))
+            },
+            // SAFETY: `fc` is valid per the callback contract. `fill_super_callback` also has
+            // the right type and is a valid callback.
+            Super::Independent => unsafe {
+                bindings::get_tree_nodev(fc, Some(Self::fill_super_callback))
+            },
+        }
     }
 
     unsafe extern "C" fn fill_super_callback(

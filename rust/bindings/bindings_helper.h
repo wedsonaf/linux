@@ -7,6 +7,7 @@
  */
 
 #include <kunit/test.h>
+#include <linux/bio.h>
 #include <linux/buffer_head.h>
 #include <linux/errname.h>
 #include <linux/fs.h>
