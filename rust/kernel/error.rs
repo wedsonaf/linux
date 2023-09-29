@@ -83,6 +83,7 @@ pub mod code {
     declare_err!(ENOGRACE, "NFS file lock reclaim refused.");
     declare_err!(ENODATA, "No data available.");
     declare_err!(EOPNOTSUPP, "Operation not supported on transport endpoint.");
+    declare_err!(ENOSYS, "Invalid system call number.");
 }
 
 /// Generic integer kernel error.

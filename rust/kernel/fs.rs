@@ -50,6 +50,31 @@ pub trait FileSystem {
     fn read_xattr(_inode: &INode<Self>, _name: &CStr, _outbuf: &mut [u8]) -> Result<usize> {
         Err(EOPNOTSUPP)
     }
+
+    /// Get filesystem statistics.
+    fn statfs(_sb: &SuperBlock<Self>) -> Result<Stat> {
+        Err(ENOSYS)
+    }
+}
+
+/// File system stats.
+///
+/// A subset of C's `kstatfs`.
+pub struct Stat {
+    /// Magic number of the file system.
+    pub magic: u32,
+
+    /// The maximum length of a file name.
+    pub namelen: i64,
+
+    /// Block size.
+    pub bsize: i64,
+
+    /// Number of files in the file system.
+    pub files: u64,
+
+    /// Number of blocks in the file system.
+    pub blocks: u64,
 }
 
 /// The types of directory entries reported by [`FileSystem::read_dir`].
@@ -478,7 +503,7 @@ impl<T: FileSystem + ?Sized> Tables<T> {
         freeze_fs: None,
         thaw_super: None,
         unfreeze_fs: None,
-        statfs: None,
+        statfs: Some(Self::statfs_callback),
         remount_fs: None,
         umount_begin: None,
         show_options: None,
@@ -495,6 +520,31 @@ impl<T: FileSystem + ?Sized> Tables<T> {
         free_cached_objects: None,
         shutdown: None,
     };
+
+    unsafe extern "C" fn statfs_callback(
+        dentry: *mut bindings::dentry,
+        buf: *mut bindings::kstatfs,
+    ) -> core::ffi::c_int {
+        from_result(|| {
+            // SAFETY: The C API guarantees that `dentry` is valid for read. `d_sb` is
+            // immutable, so it's safe to read it. The superblock is guaranteed to be valid dor
+            // the duration of the call.
+            let sb = unsafe { &*(*dentry).d_sb.cast::<SuperBlock<T>>() };
+            let s = T::statfs(sb)?;
+
+            // SAFETY: The C API guarantees that `buf` is valid for read and write.
+            let buf = unsafe { &mut *buf };
+            buf.f_type = s.magic.into();
+            buf.f_namelen = s.namelen;
+            buf.f_bsize = s.bsize;
+            buf.f_files = s.files;
+            buf.f_blocks = s.blocks;
+            buf.f_bfree = 0;
+            buf.f_bavail = 0;
+            buf.f_ffree = 0;
+            Ok(0)
+        })
+    }
 
     const XATTR_HANDLERS: [*const bindings::xattr_handler; 2] = [&Self::XATTR_HANDLER, ptr::null()];
 
