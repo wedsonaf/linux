@@ -282,12 +282,25 @@ void rust_helper_mapping_set_large_folios(struct address_space *mapping)
 }
 EXPORT_SYMBOL_GPL(rust_helper_mapping_set_large_folios);
 
+unsigned int rust_helper_MKDEV(unsigned int major, unsigned int minor)
+{
+	return MKDEV(major, minor);
+}
+EXPORT_SYMBOL_GPL(rust_helper_MKDEV);
+
 unsigned long rust_helper_copy_to_user(void __user *to, const void *from,
 				       unsigned long n)
 {
 	return copy_to_user(to, from, n);
 }
 EXPORT_SYMBOL_GPL(rust_helper_copy_to_user);
+
+void rust_helper_set_delayed_call(struct delayed_call *call,
+				  void (*fn)(void *), void *arg)
+{
+	set_delayed_call(call, fn, arg);
+}
+EXPORT_SYMBOL_GPL(rust_helper_set_delayed_call);
 
 /*
  * `bindgen` binds the C `size_t` type as the Rust `usize` type, so we can
