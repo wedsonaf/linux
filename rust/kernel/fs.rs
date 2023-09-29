@@ -15,6 +15,9 @@ use crate::{
 use core::{marker::PhantomData, marker::PhantomPinned, mem::ManuallyDrop, pin::Pin, ptr};
 use macros::{pin_data, pinned_drop};
 
+#[cfg(CONFIG_BUFFER_HEAD)]
+pub mod buffer;
+
 /// Maximum size of an inode.
 pub const MAX_LFS_FILESIZE: i64 = bindings::MAX_LFS_FILESIZE;
 
