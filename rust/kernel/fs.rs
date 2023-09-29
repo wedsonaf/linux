@@ -31,6 +31,33 @@ pub type Offset = i64;
 /// This is C's `pgoff_t`.
 pub type PageOffset = usize;
 
+/// Contains constants related to Linux file modes.
+pub mod mode {
+    /// A bitmask used to the file type from a mode value.
+    pub const S_IFMT: u16 = bindings::S_IFMT as u16;
+
+    /// File type constant for block devices.
+    pub const S_IFBLK: u16 = bindings::S_IFBLK as u16;
+
+    /// File type constant for char devices.
+    pub const S_IFCHR: u16 = bindings::S_IFCHR as u16;
+
+    /// File type constant for directories.
+    pub const S_IFDIR: u16 = bindings::S_IFDIR as u16;
+
+    /// File type constant for pipes.
+    pub const S_IFIFO: u16 = bindings::S_IFIFO as u16;
+
+    /// File type constant for symbolic links.
+    pub const S_IFLNK: u16 = bindings::S_IFLNK as u16;
+
+    /// File type constant for regular files.
+    pub const S_IFREG: u16 = bindings::S_IFREG as u16;
+
+    /// File type constant for sockets.
+    pub const S_IFSOCK: u16 = bindings::S_IFSOCK as u16;
+}
+
 /// Maximum size of an inode.
 pub const MAX_LFS_FILESIZE: Offset = bindings::MAX_LFS_FILESIZE;
 
