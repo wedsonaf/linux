@@ -49,7 +49,6 @@ pub struct View {
 }
 
 impl View {
-    #[allow(dead_code)]
     pub(crate) fn new(head: ARef<Head>, offset: usize, size: usize) -> Self {
         Self { head, size, offset }
     }

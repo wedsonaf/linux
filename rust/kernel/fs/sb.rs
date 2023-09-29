@@ -7,11 +7,22 @@
 //! C headers: [`include/linux/fs.h`](srctree/include/linux/fs.h)
 
 use super::inode::{self, INode, Ino};
-use super::{FileSystem, Offset};
-use crate::bindings;
-use crate::error::{code::*, Result};
-use crate::types::{ARef, Either, ForeignOwnable, Opaque};
+use super::{buffer, FileSystem, Offset};
+use crate::error::{code::*, to_result, Result};
+use crate::types::{ARef, Either, ForeignOwnable, Opaque, ScopeGuard};
+use crate::{bindings, block, build_error, folio::UniqueFolio};
 use core::{marker::PhantomData, ptr};
+
+/// Type of superblock keying.
+///
+/// It determines how C's `fs_context_operations::get_tree` is implemented.
+pub enum Type {
+    /// Multiple independent superblocks may exist.
+    Independent,
+
+    /// Uses a block device.
+    BlockDev,
+}
 
 /// A typestate for [`SuperBlock`] that indicates that it's a new one, so not fully initialized
 /// yet.
@@ -76,6 +87,136 @@ impl<T: FileSystem + ?Sized, S> SuperBlock<T, S> {
             // SAFETY: The new inode is valid but not fully initialised yet, so it's ok to create a
             // `inode::New`.
             Ok(Either::Right(inode::New(inode, PhantomData)))
+        }
+    }
+
+    /// Reads a block from the block device.
+    #[cfg(CONFIG_BUFFER_HEAD)]
+    pub fn bread(&self, block: u64) -> Result<ARef<buffer::Head>> {
+        // Fail requests for non-blockdev file systems. This is a compile-time check.
+        match T::SUPER_TYPE {
+            Type::BlockDev => {}
+            _ => build_error!("bread is only available in blockdev superblocks"),
+        }
+
+        // SAFETY: This function is only valid after the `NeedsInit` typestate, so the block size
+        // is known and the superblock can be used to read blocks.
+        let ptr =
+            ptr::NonNull::new(unsafe { bindings::sb_bread(self.0.get(), block) }).ok_or(EIO)?;
+        // SAFETY: `sb_bread` returns a referenced buffer head. Ownership of the increment is
+        // passed to the `ARef` instance.
+        Ok(unsafe { ARef::from_raw(ptr.cast::<buffer::Head>()) })
+    }
+
+    /// Reads `size` bytes starting from `offset` bytes.
+    ///
+    /// Returns an iterator that returns slices based on blocks.
+    #[cfg(CONFIG_BUFFER_HEAD)]
+    pub fn read(
+        &self,
+        offset: u64,
+        size: u64,
+    ) -> Result<impl Iterator<Item = Result<buffer::View>> + '_> {
+        struct BlockIter<'a, T: FileSystem + ?Sized, S> {
+            sb: &'a SuperBlock<T, S>,
+            next_offset: u64,
+            end: u64,
+        }
+        impl<'a, T: FileSystem + ?Sized, S> Iterator for BlockIter<'a, T, S> {
+            type Item = Result<buffer::View>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.next_offset >= self.end {
+                    return None;
+                }
+
+                // SAFETY: The superblock is valid and has had its block size initialised.
+                let block_size = unsafe { (*self.sb.0.get()).s_blocksize };
+                let bh = match self.sb.bread(self.next_offset / block_size) {
+                    Ok(bh) => bh,
+                    Err(e) => return Some(Err(e)),
+                };
+                let boffset = self.next_offset & (block_size - 1);
+                let bsize = core::cmp::min(self.end - self.next_offset, block_size - boffset);
+                self.next_offset += bsize;
+                Some(Ok(buffer::View::new(bh, boffset as usize, bsize as usize)))
+            }
+        }
+        Ok(BlockIter {
+            sb: self,
+            next_offset: offset,
+            end: offset.checked_add(size).ok_or(ERANGE)?,
+        })
+    }
+
+    /// Returns the block device associated with the superblock.
+    pub fn bdev(&self) -> &block::Device {
+        // Fail requests for non-blockdev file systems. This is a compile-time check.
+        match T::SUPER_TYPE {
+            // The superblock is valid and given that it's a blockdev superblock it must have a
+            // valid `s_bdev`.
+            Type::BlockDev => {}
+            _ => build_error!("bdev is only available in blockdev superblocks"),
+        }
+
+        // SAFETY: The superblock is valid and given that it's a blockdev superblock it must have a
+        // valid `s_bdev` that remain valid while the superblock (`self`) is valid.
+        unsafe { block::Device::from_raw((*self.0.get()).s_bdev) }
+    }
+
+    /// Reads sectors.
+    ///
+    /// `count` must be such that the total size doesn't exceed a page.
+    pub fn sread(&self, sector: u64, count: usize, folio: &mut UniqueFolio) -> Result {
+        // Fail requests for non-blockdev file systems. This is a compile-time check.
+        match T::SUPER_TYPE {
+            // The superblock is valid and given that it's a blockdev superblock it must have a
+            // valid `s_bdev`.
+            Type::BlockDev => {}
+            _ => build_error!("sread is only available in blockdev superblocks"),
+        }
+
+        // Read the sectors.
+        let mut bio = bindings::bio::default();
+        let bvec = Opaque::<bindings::bio_vec>::uninit();
+        let bdev = self.bdev().0.get();
+
+        // SAFETY: `bio` and `bvec` are allocated on the stack, they're both valid. `bdev` is valid
+        // because we checked that this is `BlockDev` filesystem.
+        unsafe { bindings::bio_init(&mut bio, bdev, bvec.get(), 1, bindings::req_op_REQ_OP_READ) };
+
+        // SAFETY: `bio` was just initialised with `bio_init` above, so it's safe to call
+        // `bio_uninit` on the way out.
+        let mut bio =
+            ScopeGuard::new_with_data(bio, |mut b| unsafe { bindings::bio_uninit(&mut b) });
+
+        crate::build_assert!(count * (bindings::SECTOR_SIZE as usize) <= bindings::PAGE_SIZE);
+
+        // SAFETY: We have one free `bvec` (initialsied above). We also know that size won't exceed
+        // a page size (build_assert above).
+        unsafe {
+            bindings::bio_add_folio_nofail(
+                &mut *bio,
+                folio.0 .0.get(),
+                count * (bindings::SECTOR_SIZE as usize),
+                0,
+            )
+        };
+        bio.bi_iter.bi_sector = sector;
+
+        // SAFETY: The bio was fully initialised above.
+        to_result(unsafe { bindings::submit_bio_wait(&mut *bio) })?;
+        Ok(())
+    }
+
+    /// Returns the number of sectors in the underlying block device.
+    pub fn sector_count(&self) -> u64 {
+        // Fail requests for non-blockdev file systems. This is a compile-time check.
+        match T::SUPER_TYPE {
+            // SAFETY: The superblock is valid and given that it's a blockdev superblock it must
+            // have a valid `s_bdev`.
+            Type::BlockDev => unsafe { bindings::bdev_nr_sectors((*self.0.get()).s_bdev) },
+            _ => build_error!("sector_count is only available in blockdev superblocks"),
         }
     }
 }

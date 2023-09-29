@@ -21,6 +21,7 @@
  */
 
 #include <kunit/test-bug.h>
+#include <linux/blkdev.h>
 #include <linux/buffer_head.h>
 #include <linux/bug.h>
 #include <linux/build_bug.h>
@@ -290,6 +291,13 @@ unsigned int rust_helper_MKDEV(unsigned int major, unsigned int minor)
 EXPORT_SYMBOL_GPL(rust_helper_MKDEV);
 
 #ifdef CONFIG_BUFFER_HEAD
+struct buffer_head *rust_helper_sb_bread(struct super_block *sb,
+					 sector_t block)
+{
+	return sb_bread(sb, block);
+}
+EXPORT_SYMBOL_GPL(rust_helper_sb_bread);
+
 void rust_helper_get_bh(struct buffer_head *bh)
 {
 	get_bh(bh);
@@ -302,6 +310,12 @@ void rust_helper_put_bh(struct buffer_head *bh)
 }
 EXPORT_SYMBOL_GPL(rust_helper_put_bh);
 #endif
+
+sector_t rust_helper_bdev_nr_sectors(struct block_device *bdev)
+{
+	return bdev_nr_sectors(bdev);
+}
+EXPORT_SYMBOL_GPL(rust_helper_bdev_nr_sectors);
 
 unsigned long rust_helper_copy_to_user(void __user *to, const void *from,
 				       unsigned long n)

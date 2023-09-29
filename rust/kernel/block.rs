@@ -20,7 +20,6 @@ impl Device {
     ///
     /// Callers must ensure that `ptr` is valid and remains so for the lifetime of the returned
     /// object.
-    #[allow(dead_code)]
     pub(crate) unsafe fn from_raw<'a>(ptr: *mut bindings::block_device) -> &'a Self {
         // SAFETY: The safety requirements guarantee that the cast below is ok.
         unsafe { &*ptr.cast::<Self>() }
