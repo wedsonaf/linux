@@ -13,6 +13,7 @@ use core::{marker::PhantomData, pin::Pin};
 use macros::{pin_data, pinned_drop};
 use sb::SuperBlock;
 
+pub mod inode;
 pub mod sb;
 
 /// The offset of a file in a file system.
