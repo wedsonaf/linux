@@ -31,6 +31,7 @@
 #include <linux/spinlock.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
+#include <net/net_namespace.h>
 
 __noreturn void rust_helper_BUG(void)
 {
@@ -151,6 +152,18 @@ void rust_helper___INIT_WORK_WITH_KEY(struct work_struct *work,
 	__INIT_WORK_WITH_KEY(work, func, on_stack, key);
 }
 EXPORT_SYMBOL_GPL(rust_helper___INIT_WORK_WITH_KEY);
+
+struct net *rust_helper_get_net(struct net *net)
+{
+	return get_net(net);
+}
+EXPORT_SYMBOL_GPL(rust_helper_get_net);
+
+void rust_helper_put_net(struct net *net)
+{
+	return put_net(net);
+}
+EXPORT_SYMBOL_GPL(rust_helper_put_net);
 
 /*
  * `bindgen` binds the C `size_t` type as the Rust `usize` type, so we can

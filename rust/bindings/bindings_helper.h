@@ -8,6 +8,9 @@
 
 #include <kunit/test.h>
 #include <linux/errname.h>
+#include <linux/net.h>
+#include <linux/netdevice.h>
+#include <linux/skbuff.h>
 #include <linux/slab.h>
 #include <linux/refcount.h>
 #include <linux/wait.h>
