@@ -11,11 +11,13 @@ mod arc;
 mod condvar;
 pub mod lock;
 mod locked_by;
+mod nowait;
 
 pub use arc::{Arc, ArcBorrow, UniqueArc};
 pub use condvar::CondVar;
 pub use lock::{mutex::Mutex, spinlock::SpinLock};
 pub use locked_by::LockedBy;
+pub use nowait::{NoWaitLock, NoWaitLockGuard};
 
 /// Represents a lockdep class. It's a wrapper around C's `lock_class_key`.
 #[repr(transparent)]
