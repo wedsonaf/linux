@@ -10,9 +10,10 @@
 #include <linux/errname.h>
 #include <linux/net.h>
 #include <linux/netdevice.h>
+#include <linux/poll.h>
+#include <linux/refcount.h>
 #include <linux/skbuff.h>
 #include <linux/slab.h>
-#include <linux/refcount.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
 
@@ -20,3 +21,8 @@
 const size_t BINDINGS_ARCH_SLAB_MINALIGN = ARCH_SLAB_MINALIGN;
 const gfp_t BINDINGS_GFP_KERNEL = GFP_KERNEL;
 const gfp_t BINDINGS___GFP_ZERO = __GFP_ZERO;
+
+const __poll_t BINDINGS_EPOLLIN = EPOLLIN;
+const __poll_t BINDINGS_EPOLLOUT = EPOLLOUT;
+const __poll_t BINDINGS_EPOLLERR = EPOLLERR;
+const __poll_t BINDINGS_EPOLLHUP = EPOLLHUP;

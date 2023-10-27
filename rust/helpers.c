@@ -74,6 +74,13 @@ void rust_helper_init_wait(struct wait_queue_entry *wq_entry)
 }
 EXPORT_SYMBOL_GPL(rust_helper_init_wait);
 
+void rust_helper_init_waitqueue_func_entry(struct wait_queue_entry *wq_entry,
+					   wait_queue_func_t func)
+{
+	init_waitqueue_func_entry(wq_entry, func);
+}
+EXPORT_SYMBOL_GPL(rust_helper_init_waitqueue_func_entry);
+
 int rust_helper_signal_pending(struct task_struct *t)
 {
 	return signal_pending(t);

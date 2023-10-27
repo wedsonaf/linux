@@ -51,3 +51,8 @@ pub use bindings_raw::*;
 
 pub const GFP_KERNEL: gfp_t = BINDINGS_GFP_KERNEL;
 pub const __GFP_ZERO: gfp_t = BINDINGS___GFP_ZERO;
+
+pub const EPOLLIN: __poll_t = BINDINGS_EPOLLIN;
+pub const EPOLLOUT: __poll_t = BINDINGS_EPOLLOUT;
+pub const EPOLLERR: __poll_t = BINDINGS_EPOLLERR;
+pub const EPOLLHUP: __poll_t = BINDINGS_EPOLLHUP;
