@@ -30,6 +30,7 @@
 #include <linux/sched/signal.h>
 #include <linux/spinlock.h>
 #include <linux/wait.h>
+#include <linux/workqueue.h>
 
 __noreturn void rust_helper_BUG(void)
 {
@@ -143,6 +144,13 @@ struct kunit *rust_helper_kunit_get_current_test(void)
 	return kunit_get_current_test();
 }
 EXPORT_SYMBOL_GPL(rust_helper_kunit_get_current_test);
+
+void rust_helper___INIT_WORK_WITH_KEY(struct work_struct *work,
+		work_func_t func, bool on_stack, struct lock_class_key *key)
+{
+	__INIT_WORK_WITH_KEY(work, func, on_stack, key);
+}
+EXPORT_SYMBOL_GPL(rust_helper___INIT_WORK_WITH_KEY);
 
 /*
  * `bindgen` binds the C `size_t` type as the Rust `usize` type, so we can

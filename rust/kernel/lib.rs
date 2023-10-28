@@ -49,6 +49,7 @@ pub mod sync;
 pub mod task;
 pub mod types;
 pub mod unsafe_list;
+pub mod workqueue;
 
 #[doc(hidden)]
 pub use bindings;
