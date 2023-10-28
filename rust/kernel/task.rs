@@ -4,8 +4,10 @@
 //!
 //! C header: [`include/linux/sched.h`](../../../../include/linux/sched.h).
 
-use crate::{bindings, types::Opaque};
-use core::{marker::PhantomData, ops::Deref, ptr};
+use crate::types::{ARef, ForeignOwnable, Opaque, ScopeGuard};
+use crate::{bindings, c_str, error::from_err_ptr, error::Result};
+use alloc::boxed::Box;
+use core::{fmt, marker::PhantomData, ops::Deref, ptr};
 
 /// Returns the currently running task.
 #[macro_export]
@@ -144,6 +146,89 @@ impl Task {
         // And `wake_up_process` is safe to be called for any valid task, even if the task is
         // running.
         unsafe { bindings::wake_up_process(self.0.get()) };
+    }
+
+    /// Starts a new kernel thread and runs it.
+    ///
+    /// # Examples
+    ///
+    /// Launches 10 threads and waits for them to complete.
+    ///
+    /// ```ignore
+    /// use core::sync::atomic::{AtomicU32, Ordering};
+    /// use kernel::sync::{CondVar, Mutex};
+    /// use kernel::task::Task;
+    ///
+    /// kernel::init_static_sync! {
+    ///     static COUNT: Mutex<u32> = 0;
+    ///     static COUNT_IS_ZERO: CondVar;
+    /// }
+    ///
+    /// fn threadfn() {
+    ///     pr_info!("Running from thread {}\n", Task::current().pid());
+    ///     let mut guard = COUNT.lock();
+    ///     *guard -= 1;
+    ///     if *guard == 0 {
+    ///         COUNT_IS_ZERO.notify_all();
+    ///     }
+    /// }
+    ///
+    /// // Set count to 10 and spawn 10 threads.
+    /// *COUNT.lock() = 10;
+    /// for i in 0..10 {
+    ///     Task::spawn(fmt!("test{i}"), threadfn).unwrap();
+    /// }
+    ///
+    /// // Wait for count to drop to zero.
+    /// let mut guard = COUNT.lock();
+    /// while (*guard != 0) {
+    ///     COUNT_IS_ZERO.wait(&mut guard);
+    /// }
+    /// ```
+    pub fn spawn<T: FnOnce() + Send + 'static>(
+        name: fmt::Arguments<'_>,
+        func: T,
+    ) -> Result<ARef<Task>> {
+        unsafe extern "C" fn threadfn<T: FnOnce() + Send + 'static>(
+            arg: *mut core::ffi::c_void,
+        ) -> core::ffi::c_int {
+            // SAFETY: The thread argument is always a `Box<T>` because it is only called via the
+            // thread creation below.
+            let bfunc = unsafe { Box::<T>::from_foreign(arg) };
+            bfunc();
+            0
+        }
+
+        let arg = Box::try_new(func)?.into_foreign();
+
+        // SAFETY: `arg` was just created with a call to `into_foreign` above.
+        let guard = ScopeGuard::new(|| unsafe {
+            Box::<T>::from_foreign(arg);
+        });
+
+        // SAFETY: The function pointer is always valid (as long as the module remains loaded).
+        // Ownership of `raw` is transferred to the new thread (if one is actually created), so it
+        // remains valid. Lastly, the C format string is a constant that require formatting as the
+        // one and only extra argument.
+        let ktask = from_err_ptr(unsafe {
+            bindings::kthread_create_on_node(
+                Some(threadfn::<T>),
+                arg as _,
+                bindings::NUMA_NO_NODE,
+                c_str!("%pA").as_char_ptr(),
+                &name as *const _ as *const core::ffi::c_void,
+            )
+        })?;
+
+        // SAFETY: Since the kthread creation succeeded and we haven't run it yet, we know the task
+        // is valid.
+        let task: ARef<_> = unsafe { &*(ktask as *const Task) }.into();
+
+        // Wakes up the thread, otherwise it won't run.
+        task.wake_up();
+
+        guard.dismiss();
+        Ok(task)
     }
 }
 
