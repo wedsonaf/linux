@@ -5,7 +5,7 @@
 //! C header: [`include/linux/sched.h`](../../../../include/linux/sched.h).
 
 use crate::types::{ARef, ForeignOwnable, Opaque, ScopeGuard};
-use crate::{bindings, c_str, error::from_err_ptr, error::Result};
+use crate::{bindings, c_str, error::code::*, error::from_err_ptr, error::Result, ThisModule};
 use alloc::boxed::Box;
 use core::{fmt, marker::PhantomData, ops::Deref, ptr};
 
@@ -154,6 +154,77 @@ impl Task {
         unsafe { bindings::wake_up_process(self.0.get()) };
     }
 
+    /// Starts a new thread.
+    ///
+    /// It will also increment the refcount on the given module before starting the thread, and
+    /// automatically decrement it when the thread goes away.
+    ///
+    /// # Safety
+    ///
+    /// `module` must be a valid module or NULL.
+    unsafe fn spawn_internal<T: FnOnce() + Send + 'static>(
+        module: *mut bindings::module,
+        name: fmt::Arguments<'_>,
+        func: T,
+    ) -> Result<KTask> {
+        unsafe extern "C" fn threadfn<T: FnOnce() + Send + 'static>(
+            arg: *mut core::ffi::c_void,
+        ) -> core::ffi::c_int {
+            // SAFETY: The thread argument is always a `Box<T, module>` because it is only called
+            // via the thread creation below.
+            let bpair = unsafe { Box::<(T, *mut bindings::module)>::from_foreign(arg) };
+            bpair.0();
+            // SAFETY: By the safety requirements of `spawn_internal`, we know `bpair.1` is a valid
+            // argument (either a valid module or NULL).
+            unsafe { bindings::__module_put_and_kthread_exit(bpair.1, 0) };
+        }
+
+        let arg = Box::try_new((func, module))?.into_foreign();
+
+        // SAFETY: `arg` was just created with a call to `into_foreign` above.
+        let guard = ScopeGuard::new(|| unsafe {
+            Box::<T>::from_foreign(arg);
+        });
+
+        // SAFETY: The safety requirements of this function ensure that module is either a valid
+        // module or NULL, both of which are valid arguments for `try_module_get`.
+        if !unsafe { bindings::try_module_get(module) } {
+            return Err(EBUSY);
+        }
+
+        // SAFETY: The safety requirements of this function ensure that `module` is either a valid
+        // module or NULL, both of which are valid arguments for `module_put`. Additionally, the
+        // refcount of the module was just successfully incremented above, so it's safe to
+        // decrement on exit (except on successful exits, when this guard gets dismissed).
+        let mod_guard = ScopeGuard::new(|| unsafe { bindings::module_put(module) });
+
+        // SAFETY: The function pointer is always valid (as long as the module remains loaded).
+        // Ownership of `raw` is transferred to the new thread (if one is actually created), so it
+        // remains valid. Lastly, the C format string is a constant that require formatting as the
+        // one and only extra argument.
+        let ktask = from_err_ptr(unsafe {
+            bindings::kthread_create_on_node(
+                Some(threadfn::<T>),
+                arg as _,
+                bindings::NUMA_NO_NODE,
+                c_str!("%pA").as_char_ptr(),
+                &name as *const _ as *const core::ffi::c_void,
+            )
+        })?;
+
+        // SAFETY: Since the kthread creation succeeded and we haven't run it yet, we know the task
+        // is valid.
+        let task = ARef::from(unsafe { &*(ktask.cast::<Task>()) });
+
+        // Wakes up the thread, otherwise it won't run.
+        task.wake_up();
+
+        guard.dismiss();
+        mod_guard.dismiss();
+
+        Ok(KTask { task: Some(task) })
+    }
+
     /// Starts a new kernel thread and runs it.
     ///
     /// # Examples
@@ -191,47 +262,24 @@ impl Task {
     ///     COUNT_IS_ZERO.wait(&mut guard);
     /// }
     /// ```
-    pub fn spawn<T: FnOnce() + Send + 'static>(name: fmt::Arguments<'_>, func: T) -> Result<KTask> {
-        unsafe extern "C" fn threadfn<T: FnOnce() + Send + 'static>(
-            arg: *mut core::ffi::c_void,
-        ) -> core::ffi::c_int {
-            // SAFETY: The thread argument is always a `Box<T>` because it is only called via the
-            // thread creation below.
-            let bfunc = unsafe { Box::<T>::from_foreign(arg) };
-            bfunc();
-            0
-        }
+    pub fn spawn(name: fmt::Arguments<'_>, func: impl FnOnce() + Send + 'static) -> Result<KTask> {
+        // SAFETY: `module` is NULL, which satisfies the requirements.
+        unsafe { Self::spawn_internal(ptr::null_mut(), name, func) }
+    }
 
-        let arg = Box::try_new(func)?.into_foreign();
-
-        // SAFETY: `arg` was just created with a call to `into_foreign` above.
-        let guard = ScopeGuard::new(|| unsafe {
-            Box::<T>::from_foreign(arg);
-        });
-
-        // SAFETY: The function pointer is always valid (as long as the module remains loaded).
-        // Ownership of `raw` is transferred to the new thread (if one is actually created), so it
-        // remains valid. Lastly, the C format string is a constant that require formatting as the
-        // one and only extra argument.
-        let ktask = from_err_ptr(unsafe {
-            bindings::kthread_create_on_node(
-                Some(threadfn::<T>),
-                arg as _,
-                bindings::NUMA_NO_NODE,
-                c_str!("%pA").as_char_ptr(),
-                &name as *const _ as *const core::ffi::c_void,
-            )
-        })?;
-
-        // SAFETY: Since the kthread creation succeeded and we haven't run it yet, we know the task
-        // is valid.
-        let task = ARef::from(unsafe { &*(ktask.cast::<Task>()) });
-
-        // Wakes up the thread, otherwise it won't run.
-        task.wake_up();
-
-        guard.dismiss();
-        Ok(KTask { task: Some(task) })
+    /// Increments the given module's refcount and starts a new kernel thread.
+    ///
+    /// The module's refcount is decremented when the thread stops.
+    ///
+    /// [`Task::spawn`] has examples of starting kernel threads.
+    pub fn spawn_with_module(
+        module: &ThisModule,
+        name: fmt::Arguments<'_>,
+        func: impl FnOnce() + Send + 'static,
+    ) -> Result<KTask> {
+        // SAFETY: `module` is either NULL (when code is not compiled as a module) or a valid
+        // module.
+        unsafe { Self::spawn_internal(module.0, name, func) }
     }
 }
 
