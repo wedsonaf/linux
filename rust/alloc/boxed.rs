@@ -664,6 +664,29 @@ impl<T> Box<[T]> {
         unsafe { RawVec::with_capacity_zeroed(len).into_box(len) }
     }
 
+    /// Constructs a new boxed slice with a fixed value. Returns an error if
+    /// the allocation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut values = Box::<[u32]>::try_new_slice(3, 10)?;
+    /// assert_eq!(*values, [10, 10, 10]);
+    /// # Ok::<(), std::alloc::AllocError>(())
+    /// ```
+    #[stable(feature = "kernel", since = "1.0.0")]
+    #[inline]
+    pub fn try_new_slice(len: usize, value: T) -> Result<Box<[T]>, AllocError>
+    where
+        T: Copy
+    {
+        let mut b = Self::try_new_uninit_slice(len)?;
+        for v in b.iter_mut() {
+            v.write(value);
+        }
+        Ok(unsafe { b.assume_init() })
+    }
+
     /// Constructs a new boxed slice with uninitialized contents. Returns an error if
     /// the allocation fails
     ///
