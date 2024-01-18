@@ -614,6 +614,14 @@ impl TryFrom<&CStr> for CString {
         })
     }
 }
+impl TryFrom<Box<[u8]>> for CString {
+    type Error = CStrConvertError;
+
+    fn try_from(buf: Box<[u8]>) -> Result<CString, CStrConvertError> {
+        CStr::from_bytes_with_nul(&buf)?;
+        Ok(Self { buf })
+    }
+}
 
 impl fmt::Debug for CString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
