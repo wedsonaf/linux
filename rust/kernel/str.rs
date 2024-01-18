@@ -2,14 +2,12 @@
 
 //! String representations.
 
+use crate::error::{code::*, Error};
+use crate::{bindings, types::ForeignOwnable};
 use alloc::{alloc::AllocError, boxed::Box};
 use core::fmt::{self, Write};
 use core::ops::{self, Deref, Index};
-
-use crate::{
-    bindings,
-    error::{code::*, Error},
-};
+use core::ptr;
 
 /// Byte string without UTF-8 validity guarantee.
 ///
@@ -620,6 +618,29 @@ impl TryFrom<&CStr> for CString {
 impl fmt::Debug for CString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl ForeignOwnable for CString {
+    type Borrowed<'a> = &'a CStr;
+
+    fn into_foreign(self) -> *const core::ffi::c_void {
+        Box::into_raw(self.buf) as _
+    }
+
+    unsafe fn borrow<'a>(ptr: *const core::ffi::c_void) -> Self::Borrowed<'a> {
+        unsafe { CStr::from_char_ptr(ptr.cast::<core::ffi::c_char>()) }
+    }
+
+    unsafe fn from_foreign(ptr: *const core::ffi::c_void) -> Self {
+        // SAFETY: The safety requirements of this function satisfy those of `Self::borrow`.
+        let str = unsafe { Self::borrow(ptr) };
+        let metadata = ptr::metadata(&str.0 as *const [u8]);
+        let ptr = ptr::from_raw_parts_mut(ptr.cast::<()>().cast_mut(), metadata);
+        // SAFETY: The safety requirements of this function satisfy those of `Box::from_raw`.
+        Self {
+            buf: unsafe { Box::from_raw(ptr) },
+        }
     }
 }
 
