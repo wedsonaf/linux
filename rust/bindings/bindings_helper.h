@@ -7,6 +7,7 @@
  */
 
 #include <kunit/test.h>
+#include <linux/blk_types.h>
 #include <linux/errname.h>
 #include <linux/slab.h>
 #include <linux/refcount.h>
