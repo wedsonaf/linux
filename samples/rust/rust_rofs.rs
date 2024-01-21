@@ -2,7 +2,7 @@
 
 //! Rust read-only file system sample.
 
-use kernel::fs::{dentry, file, file::File, inode, sb, sb::SuperBlock};
+use kernel::fs::{dentry, file, file::File, inode, sb, sb::SuperBlock, Offset};
 use kernel::prelude::*;
 use kernel::{c_str, fs, time::UNIX_EPOCH, types::Either};
 
@@ -79,6 +79,10 @@ impl fs::FileSystem for RoFs {
 #[vtable]
 impl file::Operations for RoFs {
     type FileSystem = Self;
+
+    fn seek(file: &File<Self>, offset: Offset, whence: file::Whence) -> Result<Offset> {
+        file::generic_seek(file, offset, whence)
+    }
 
     fn read_dir(file: &File<Self>, emitter: &mut file::DirEmitter) -> Result {
         if file.inode().ino() != 1 {

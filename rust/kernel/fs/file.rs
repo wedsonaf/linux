@@ -270,11 +270,64 @@ impl core::fmt::Debug for BadFdError {
     }
 }
 
+/// Indicates how to interpret the `offset` argument in [`Operations::seek`].
+#[repr(u32)]
+pub enum Whence {
+    /// `offset` bytes from the start of the file.
+    Set = bindings::SEEK_SET,
+
+    /// `offset` bytes from the end of the file.
+    End = bindings::SEEK_END,
+
+    /// `offset` bytes from the current location.
+    Cur = bindings::SEEK_CUR,
+
+    /// The next location greater than or equal to `offset` that contains data.
+    Data = bindings::SEEK_DATA,
+
+    /// The next location greater than or equal to `offset` that contains a hole.
+    Hole = bindings::SEEK_HOLE,
+}
+
+impl TryFrom<i32> for Whence {
+    type Error = crate::error::Error;
+
+    fn try_from(v: i32) -> Result<Self> {
+        match v {
+            v if v == Self::Set as i32 => Ok(Self::Set),
+            v if v == Self::End as i32 => Ok(Self::End),
+            v if v == Self::Cur as i32 => Ok(Self::Cur),
+            v if v == Self::Data as i32 => Ok(Self::Data),
+            v if v == Self::Hole as i32 => Ok(Self::Hole),
+            _ => Err(EDOM),
+        }
+    }
+}
+
+/// Generic implementation of [`Operations::seek`].
+pub fn generic_seek(
+    file: &File<impl FileSystem + ?Sized>,
+    offset: Offset,
+    whence: Whence,
+) -> Result<Offset> {
+    let n = unsafe { bindings::generic_file_llseek(file.0.get(), offset, whence as i32) };
+    if n < 0 {
+        Err(Error::from_errno(n.try_into()?))
+    } else {
+        Ok(n)
+    }
+}
+
 /// Operations implemented by files.
 #[vtable]
 pub trait Operations {
     /// File system that these operations are compatible with.
     type FileSystem: FileSystem + ?Sized;
+
+    /// Seeks the file to the given offset.
+    fn seek(_file: &File<Self::FileSystem>, _offset: Offset, _whence: Whence) -> Result<Offset> {
+        Err(EINVAL)
+    }
 
     /// Reads directory entries from directory files.
     ///
@@ -294,7 +347,11 @@ impl<T: FileSystem + ?Sized> Ops<T> {
         impl<T: Operations + ?Sized> Table<T> {
             const TABLE: bindings::file_operations = bindings::file_operations {
                 owner: ptr::null_mut(),
-                llseek: None,
+                llseek: if T::HAS_SEEK {
+                    Some(Self::seek_callback)
+                } else {
+                    None
+                },
                 read: None,
                 write: None,
                 read_iter: None,
@@ -331,6 +388,20 @@ impl<T: FileSystem + ?Sized> Ops<T> {
                 uring_cmd: None,
                 uring_cmd_iopoll: None,
             };
+
+            unsafe extern "C" fn seek_callback(
+                file_ptr: *mut bindings::file,
+                offset: bindings::loff_t,
+                whence: i32,
+            ) -> bindings::loff_t {
+                from_result(|| {
+                    // SAFETY: The C API guarantees that `file` is valid for the duration of the
+                    // callback. Since this callback is specifically for filesystem T, we know `T`
+                    // is the right filesystem.
+                    let file = unsafe { File::from_raw(file_ptr) };
+                    T::seek(file, offset, whence.try_into()?)
+                })
+            }
 
             unsafe extern "C" fn read_dir_callback(
                 file_ptr: *mut bindings::file,
