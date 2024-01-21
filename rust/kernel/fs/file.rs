@@ -2,15 +2,18 @@
 
 //! Files and file descriptors.
 //!
-//! C headers: [`include/linux/fs.h`](../../../../include/linux/fs.h) and
-//! [`include/linux/file.h`](../../../../include/linux/file.h)
+//! This module allows Rust code to interact with and implement files.
+//!
+//! C headers: [`include/linux/fs.h`](srctree/include/linux/fs.h) and
+//! [`include/linux/file.h`](srctree/include/linux/file.h)
 
+use super::{dentry::DEntry, inode::INode, FileSystem, UnspecifiedFS};
 use crate::{
     bindings,
     error::{code::*, Error, Result},
     types::{ARef, AlwaysRefCounted, Opaque},
 };
-use core::ptr;
+use core::{marker::PhantomData, ptr};
 
 /// Flags associated with a [`File`].
 pub mod flags {
@@ -95,6 +98,8 @@ pub mod flags {
     pub const O_RDWR: u32 = bindings::O_RDWR;
 }
 
+/// A file.
+///
 /// Wraps the kernel's `struct file`.
 ///
 /// # Refcounting
@@ -139,7 +144,7 @@ pub mod flags {
 /// * The Rust borrow-checker normally ensures this by enforcing that the `ARef<File>` from which
 ///   a `&File` is created outlives the `&File`.
 ///
-/// * Using the unsafe [`File::from_ptr`] means that it is up to the caller to ensure that the
+/// * Using the unsafe [`File::from_raw`] means that it is up to the caller to ensure that the
 ///   `&File` only exists while the reference count is positive.
 ///
 /// * You can think of `fdget` as using an fd to look up an `ARef<File>` in the `struct
@@ -154,20 +159,20 @@ pub mod flags {
 ///   closed.
 /// * A light refcount must be dropped before returning to userspace.
 #[repr(transparent)]
-pub struct File(Opaque<bindings::file>);
+pub struct File<T: FileSystem + ?Sized = UnspecifiedFS>(Opaque<bindings::file>, PhantomData<T>);
 
 // SAFETY: By design, the only way to access a `File` is via an immutable reference or an `ARef`.
 // This means that the only situation in which a `File` can be accessed mutably is when the
 // refcount drops to zero and the destructor runs. It is safe for that to happen on any thread, so
 // it is ok for this type to be `Send`.
-unsafe impl Send for File {}
+unsafe impl<T: FileSystem + ?Sized> Send for File<T> {}
 
 // SAFETY: All methods defined on `File` that take `&self` are safe to call even if other threads
 // are concurrently accessing the same `struct file`, because those methods either access immutable
 // properties or have proper synchronization to ensure that such accesses are safe.
-unsafe impl Sync for File {}
+unsafe impl<T: FileSystem + ?Sized> Sync for File<T> {}
 
-impl File {
+impl<T: FileSystem + ?Sized> File<T> {
     /// Constructs a new `struct file` wrapper from a file descriptor.
     ///
     /// The file descriptor belongs to the current process.
@@ -187,15 +192,17 @@ impl File {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that `ptr` points at a valid file and that the file's refcount is
-    /// positive for the duration of 'a.
-    pub unsafe fn from_ptr<'a>(ptr: *const bindings::file) -> &'a File {
+    /// Callers must ensure that:
+    ///
+    /// * `ptr` is valid and remains so for the duration of 'a.
+    /// * `ptr` has the correct file system type, or `T` is [`UnspecifiedFS`].
+    pub unsafe fn from_raw<'a>(ptr: *const bindings::file) -> &'a Self {
         // SAFETY: The caller guarantees that the pointer is not dangling and stays valid for the
         // duration of 'a. The cast is okay because `File` is `repr(transparent)`.
         //
         // INVARIANT: The safety requirements guarantee that the refcount does not hit zero during
         // 'a.
-        unsafe { &*ptr.cast() }
+        unsafe { &*ptr.cast::<Self>() }
     }
 
     /// Returns a raw pointer to the inner C struct.
@@ -215,20 +222,32 @@ impl File {
         // TODO: Replace with `read_once` when available on the Rust side.
         unsafe { core::ptr::addr_of!((*self.as_ptr()).f_flags).read_volatile() }
     }
+
+    /// Returns the inode associated with the file.
+    pub fn inode(&self) -> &INode<T> {
+        // SAFETY: `f_inode` is an immutable field, so it's safe to read it.
+        unsafe { INode::from_raw((*self.0.get()).f_inode) }
+    }
+
+    /// Returns the dentry associated with the file.
+    pub fn dentry(&self) -> &DEntry<T> {
+        // SAFETY: `f_path` is an immutable field, so it's safe to read it. And will remain safe to
+        // read while the `&self` is valid.
+        unsafe { DEntry::from_raw((*self.0.get()).f_path.dentry) }
+    }
 }
 
 // SAFETY: The type invariants guarantee that `File` is always ref-counted. This implementation
 // makes `ARef<File>` own a normal refcount.
-unsafe impl AlwaysRefCounted for File {
+unsafe impl<T: FileSystem + ?Sized> AlwaysRefCounted for File<T> {
     fn inc_ref(&self) {
         // SAFETY: The existence of a shared reference means that the refcount is nonzero.
         unsafe { bindings::get_file(self.as_ptr()) };
     }
 
-    unsafe fn dec_ref(obj: ptr::NonNull<File>) {
-        // SAFETY: To call this method, the caller passes us ownership of a normal refcount, so we
-        // may drop it. The cast is okay since `File` has the same representation as `struct file`.
-        unsafe { bindings::fput(obj.cast().as_ptr()) }
+    unsafe fn dec_ref(obj: ptr::NonNull<Self>) {
+        // SAFETY: The safety requirements guarantee that the refcount is nonzero.
+        unsafe { bindings::fput(obj.as_ref().0.get()) }
     }
 }
 

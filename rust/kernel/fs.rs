@@ -29,6 +29,12 @@ pub trait FileSystem {
     /// The name of the file system type.
     const NAME: &'static CStr;
 
+    /// Determines if an implementation doesn't specify the required types.
+    ///
+    /// This is meant for internal use only.
+    #[doc(hidden)]
+    const IS_UNSPECIFIED: bool = false;
+
     /// Returns the parameters to initialise a super block.
     fn super_params(sb: &SuperBlock<Self>) -> Result<sb::Params>;
 
@@ -37,6 +43,22 @@ pub trait FileSystem {
     /// This is called during initialisation of a superblock after [`FileSystem::super_params`] has
     /// completed successfully.
     fn init_root(sb: &SuperBlock<Self>) -> Result<dentry::Root<Self>>;
+}
+
+/// A file system that is unspecified.
+///
+/// Attempting to get super-block or inode data from it will result in a build error.
+pub struct UnspecifiedFS;
+
+impl FileSystem for UnspecifiedFS {
+    const NAME: &'static CStr = crate::c_str!("unspecified");
+    const IS_UNSPECIFIED: bool = true;
+    fn super_params(_: &SuperBlock<Self>) -> Result<sb::Params> {
+        Err(ENOTSUPP)
+    }
+    fn init_root(_: &SuperBlock<Self>) -> Result<dentry::Root<Self>> {
+        Err(ENOTSUPP)
+    }
 }
 
 /// A registration of a file system.

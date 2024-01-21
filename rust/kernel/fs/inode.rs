@@ -36,7 +36,6 @@ impl<T: FileSystem + ?Sized> INode<T> {
     ///
     /// * `ptr` is valid and remains so for the lifetime of the returned object.
     /// * `ptr` has the correct file system type, or `T` is [`super::UnspecifiedFS`].
-    #[allow(dead_code)]
     pub(crate) unsafe fn from_raw<'a>(ptr: *mut bindings::inode) -> &'a Self {
         // SAFETY: The safety requirements guarantee that the cast below is ok.
         unsafe { &*ptr.cast::<Self>() }
