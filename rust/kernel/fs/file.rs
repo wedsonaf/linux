@@ -76,7 +76,7 @@ pub mod flags {
     /// # Examples
     ///
     /// ```
-    /// use kernel::file;
+    /// use kernel::fs::file;
     /// # fn do_something() {}
     /// # let flags = 0;
     /// if (flags & file::flags::O_ACCMODE) == file::flags::O_RDONLY {

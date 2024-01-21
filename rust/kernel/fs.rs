@@ -14,6 +14,7 @@ use macros::{pin_data, pinned_drop};
 use sb::SuperBlock;
 
 pub mod dentry;
+pub mod file;
 pub mod inode;
 pub mod sb;
 
