@@ -14,6 +14,7 @@ use crate::{
     types::{ARef, AlwaysRefCounted, Opaque},
 };
 use core::{marker::PhantomData, ptr};
+use macros::vtable;
 
 /// Flags associated with a [`File`].
 pub mod flags {
@@ -266,5 +267,60 @@ impl From<BadFdError> for Error {
 impl core::fmt::Debug for BadFdError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.pad("EBADF")
+    }
+}
+
+/// Operations implemented by files.
+#[vtable]
+pub trait Operations {
+    /// File system that these operations are compatible with.
+    type FileSystem: FileSystem + ?Sized;
+}
+
+/// Represents file operations.
+pub struct Ops<T: FileSystem + ?Sized>(pub(crate) *const bindings::file_operations, PhantomData<T>);
+
+impl<T: FileSystem + ?Sized> Ops<T> {
+    /// Creates file operations from a type that implements the [`Operations`] trait.
+    pub const fn new<U: Operations<FileSystem = T> + ?Sized>() -> Self {
+        struct Table<T: Operations + ?Sized>(PhantomData<T>);
+        impl<T: Operations + ?Sized> Table<T> {
+            const TABLE: bindings::file_operations = bindings::file_operations {
+                owner: ptr::null_mut(),
+                llseek: None,
+                read: None,
+                write: None,
+                read_iter: None,
+                write_iter: None,
+                iopoll: None,
+                iterate_shared: None,
+                poll: None,
+                unlocked_ioctl: None,
+                compat_ioctl: None,
+                mmap: None,
+                mmap_supported_flags: 0,
+                open: None,
+                flush: None,
+                release: None,
+                fsync: None,
+                fasync: None,
+                lock: None,
+                get_unmapped_area: None,
+                check_flags: None,
+                flock: None,
+                splice_write: None,
+                splice_read: None,
+                splice_eof: None,
+                setlease: None,
+                fallocate: None,
+                show_fdinfo: None,
+                copy_file_range: None,
+                remap_file_range: None,
+                fadvise: None,
+                uring_cmd: None,
+                uring_cmd_iopoll: None,
+            };
+        }
+        Self(&Table::<U>::TABLE, PhantomData)
     }
 }
