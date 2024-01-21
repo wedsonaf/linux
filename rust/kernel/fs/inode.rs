@@ -6,7 +6,7 @@
 //!
 //! C headers: [`include/linux/fs.h`](srctree/include/linux/fs.h)
 
-use super::{sb::SuperBlock, FileSystem, Offset};
+use super::{file, sb::SuperBlock, FileSystem, Offset};
 use crate::error::Result;
 use crate::types::{ARef, AlwaysRefCounted, Opaque};
 use crate::{bindings, time::Timespec};
@@ -92,9 +92,6 @@ impl<T: FileSystem + ?Sized> New<T> {
         let inode = unsafe { self.0.as_mut() };
         let mode = match params.typ {
             Type::Dir => {
-                // SAFETY: `simple_dir_operations` never changes, it's safe to reference it.
-                inode.__bindgen_anon_3.i_fop = unsafe { &bindings::simple_dir_operations };
-
                 // SAFETY: `simple_dir_inode_operations` never changes, it's safe to reference it.
                 inode.i_op = unsafe { &bindings::simple_dir_inode_operations };
 
@@ -122,6 +119,14 @@ impl<T: FileSystem + ?Sized> New<T> {
         // SAFETY: We transferred ownership of the refcount to `ARef` by preventing `drop` from
         // being called with the `ManuallyDrop` instance created above.
         Ok(unsafe { ARef::from_raw(manual.0.cast::<INode<T>>()) })
+    }
+
+    /// Sets the file operations on this new inode.
+    pub fn set_fops(&mut self, fops: file::Ops<T>) -> &mut Self {
+        // SAFETY: By the type invariants, it's ok to modify the inode.
+        let inode = unsafe { self.0.as_mut() };
+        inode.__bindgen_anon_3.i_fop = fops.0;
+        self
     }
 }
 

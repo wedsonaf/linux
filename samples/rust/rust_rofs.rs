@@ -2,7 +2,7 @@
 
 //! Rust read-only file system sample.
 
-use kernel::fs::{dentry, inode, sb, sb::SuperBlock};
+use kernel::fs::{dentry, file, file::File, inode, sb, sb::SuperBlock};
 use kernel::prelude::*;
 use kernel::{c_str, fs, time::UNIX_EPOCH, types::Either};
 
@@ -13,6 +13,32 @@ kernel::module_fs! {
     description: "Rust read-only file system sample",
     license: "GPL",
 }
+
+struct Entry {
+    name: &'static [u8],
+    ino: u64,
+    etype: inode::Type,
+}
+
+const ENTRIES: [Entry; 3] = [
+    Entry {
+        name: b".",
+        ino: 1,
+        etype: inode::Type::Dir,
+    },
+    Entry {
+        name: b"..",
+        ino: 1,
+        etype: inode::Type::Dir,
+    },
+    Entry {
+        name: b"subdir",
+        ino: 2,
+        etype: inode::Type::Dir,
+    },
+];
+
+const DIR_FOPS: file::Ops<RoFs> = file::Ops::new::<RoFs>();
 
 struct RoFs;
 impl fs::FileSystem for RoFs {
@@ -30,19 +56,46 @@ impl fs::FileSystem for RoFs {
     fn init_root(sb: &SuperBlock<Self>) -> Result<dentry::Root<Self>> {
         let inode = match sb.get_or_create_inode(1)? {
             Either::Left(existing) => existing,
-            Either::Right(new) => new.init(inode::Params {
-                typ: inode::Type::Dir,
-                mode: 0o555,
-                size: 1,
-                blocks: 1,
-                nlink: 2,
-                uid: 0,
-                gid: 0,
-                atime: UNIX_EPOCH,
-                ctime: UNIX_EPOCH,
-                mtime: UNIX_EPOCH,
-            })?,
+            Either::Right(mut new) => {
+                new.set_fops(DIR_FOPS);
+                new.init(inode::Params {
+                    typ: inode::Type::Dir,
+                    mode: 0o555,
+                    size: ENTRIES.len().try_into()?,
+                    blocks: 1,
+                    nlink: 2,
+                    uid: 0,
+                    gid: 0,
+                    atime: UNIX_EPOCH,
+                    ctime: UNIX_EPOCH,
+                    mtime: UNIX_EPOCH,
+                })?
+            }
         };
         dentry::Root::try_new(inode)
+    }
+}
+
+#[vtable]
+impl file::Operations for RoFs {
+    type FileSystem = Self;
+
+    fn read_dir(file: &File<Self>, emitter: &mut file::DirEmitter) -> Result {
+        if file.inode().ino() != 1 {
+            return Ok(());
+        }
+
+        let pos = emitter.pos();
+        if pos >= ENTRIES.len().try_into()? {
+            return Ok(());
+        }
+
+        for e in ENTRIES.iter().skip(pos.try_into()?) {
+            if !emitter.emit(1, e.name, e.ino, e.etype.into()) {
+                break;
+            }
+        }
+
+        Ok(())
     }
 }
