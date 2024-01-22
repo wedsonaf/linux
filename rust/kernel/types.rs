@@ -387,6 +387,94 @@ impl<T: AlwaysRefCounted> Drop for ARef<T> {
     }
 }
 
+/// A lockable object.
+///
+/// Implementers must implement [`Lockable::raw_lock`] and [`Lockable::unlock`], and they'll get a
+/// `lock` method that returned a guard that can be used to access the locked object and unlocks it
+/// automatically when it goes out of scope.
+///
+/// # Safety
+///
+/// The [`Lockable::raw_lock`] must indeed lock the object, otherwise we may run into UB if
+/// multiple instances believe they have exclusive access.
+pub unsafe trait Lockable {
+    /// Locks the object.
+    ///
+    /// The returned guard will automatically unlock the object when it goes out of scope.
+    fn lock(&self) -> Locked<&Self> {
+        self.raw_lock();
+
+        // SAFETY: The object was locked above, so responsibility to unlock is transferred to
+        // `Locked` instance.
+        unsafe { Locked::new(self) }
+    }
+
+    /// Locks the object.
+    fn raw_lock(&self);
+
+    /// Lockables object.
+    ///
+    /// # Safety
+    ///
+    /// The object  must be locked.
+    unsafe fn unlock(&self);
+}
+
+/// A locked version of an existing type.
+///
+/// # Invariants
+///
+/// The object is locked and the responsibility to unlock it belongs to the [`Locked`] instance.
+pub struct Locked<T: Deref>(T)
+where
+    T::Target: Lockable;
+
+impl<T: Deref> Locked<T>
+where
+    T::Target: Lockable,
+{
+    /// Creates a new instance of [`Locked`].
+    ///
+    /// # Safety
+    ///
+    /// The instance of T must be locked and the responsibility to unlock it is transferred to the
+    /// returned instance of [`Locked`].
+    pub unsafe fn new(v: T) -> Self {
+        // INVARIANT: The safety requirements ensure that the invariants hold.
+        Self(v)
+    }
+}
+
+impl<T: Deref> Deref for Locked<T>
+where
+    T::Target: Lockable,
+{
+    type Target = T::Target;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: Deref> Drop for Locked<T>
+where
+    T::Target: Lockable,
+{
+    fn drop(&mut self) {
+        // SAFETY: The type invariants guarantee that the object is locked.
+        unsafe { self.0.unlock() }
+    }
+}
+
+impl<T: Lockable + AlwaysRefCounted> From<Locked<&T>> for Locked<ARef<T>> {
+    fn from(value: Locked<&T>) -> Self {
+        let aref = ARef::<T>::from(value.deref());
+        core::mem::forget(value);
+        // SAFETY: We forgot the locked value above, so responsibility is transferred to new
+        // instance of [`Locked`].
+        unsafe { Locked::new(aref) }
+    }
+}
+
 /// A sum type that always holds either a value of type `L` or `R`.
 pub enum Either<L, R> {
     /// Constructs an instance of [`Either`] containing a value of type `L`.
