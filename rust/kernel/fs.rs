@@ -13,6 +13,7 @@ use core::{ffi, marker::PhantomData, mem::ManuallyDrop, pin::Pin, ptr};
 use macros::{pin_data, pinned_drop};
 use sb::SuperBlock;
 
+pub mod address_space;
 pub mod dentry;
 pub mod file;
 pub mod inode;
