@@ -12,9 +12,17 @@ use crate::types::{ARef, AlwaysRefCounted, Opaque};
 use crate::{bindings, time::Timespec};
 use core::mem::ManuallyDrop;
 use core::{marker::PhantomData, ptr};
+use macros::vtable;
 
 /// The number of an inode.
 pub type Ino = u64;
+
+/// Operations implemented by inodes.
+#[vtable]
+pub trait Operations {
+    /// File system that these operations are compatible with.
+    type FileSystem: FileSystem + ?Sized;
+}
 
 /// A node (inode) in the file index.
 ///
@@ -183,4 +191,44 @@ pub struct Params {
 
     /// Last access time.
     pub atime: Timespec,
+}
+
+/// Represents inode operations.
+pub struct Ops<T: FileSystem + ?Sized>(*const bindings::inode_operations, PhantomData<T>);
+
+impl<T: FileSystem + ?Sized> Ops<T> {
+    /// Creates the inode operations from a type that implements the [`Operations`] trait.
+    pub const fn new<U: Operations<FileSystem = T> + ?Sized>() -> Self {
+        struct Table<T: Operations + ?Sized>(PhantomData<T>);
+        impl<T: Operations + ?Sized> Table<T> {
+            const TABLE: bindings::inode_operations = bindings::inode_operations {
+                lookup: None,
+                get_link: None,
+                permission: None,
+                get_inode_acl: None,
+                readlink: None,
+                create: None,
+                link: None,
+                unlink: None,
+                symlink: None,
+                mkdir: None,
+                rmdir: None,
+                mknod: None,
+                rename: None,
+                setattr: None,
+                getattr: None,
+                listxattr: None,
+                fiemap: None,
+                update_time: None,
+                atomic_open: None,
+                tmpfile: None,
+                get_acl: None,
+                set_acl: None,
+                fileattr_set: None,
+                fileattr_get: None,
+                get_offset_ctx: None,
+            };
+        }
+        Self(&Table::<U>::TABLE, PhantomData)
+    }
 }
