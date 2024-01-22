@@ -6,8 +6,8 @@
 //!
 //! C headers: [`include/linux/fs.h`](srctree/include/linux/fs.h)
 
-use super::{file, sb::SuperBlock, FileSystem, Offset};
-use crate::error::Result;
+use super::{dentry, dentry::DEntry, file, sb::SuperBlock, FileSystem, Offset};
+use crate::error::{code::*, Result};
 use crate::types::{ARef, AlwaysRefCounted, Opaque};
 use crate::{bindings, time::Timespec};
 use core::mem::ManuallyDrop;
@@ -22,6 +22,14 @@ pub type Ino = u64;
 pub trait Operations {
     /// File system that these operations are compatible with.
     type FileSystem: FileSystem + ?Sized;
+
+    /// Returns the inode corresponding to the directory entry with the given name.
+    fn lookup(
+        _parent: &INode<Self::FileSystem>,
+        _dentry: dentry::Unhashed<'_, Self::FileSystem>,
+    ) -> Result<Option<ARef<DEntry<Self::FileSystem>>>> {
+        Err(ENOTSUPP)
+    }
 }
 
 /// A node (inode) in the file index.
@@ -99,12 +107,7 @@ impl<T: FileSystem + ?Sized> New<T> {
         // SAFETY: This is a new inode, so it's safe to manipulate it mutably.
         let inode = unsafe { self.0.as_mut() };
         let mode = match params.typ {
-            Type::Dir => {
-                // SAFETY: `simple_dir_inode_operations` never changes, it's safe to reference it.
-                inode.i_op = unsafe { &bindings::simple_dir_inode_operations };
-
-                bindings::S_IFDIR
-            }
+            Type::Dir => bindings::S_IFDIR,
         };
 
         inode.i_mode = (params.mode & 0o777) | u16::try_from(mode)?;
@@ -127,6 +130,14 @@ impl<T: FileSystem + ?Sized> New<T> {
         // SAFETY: We transferred ownership of the refcount to `ARef` by preventing `drop` from
         // being called with the `ManuallyDrop` instance created above.
         Ok(unsafe { ARef::from_raw(manual.0.cast::<INode<T>>()) })
+    }
+
+    /// Sets the inode operations on this new inode.
+    pub fn set_iops(&mut self, iops: Ops<T>) -> &mut Self {
+        // SAFETY: By the type invariants, it's ok to modify the inode.
+        let inode = unsafe { self.0.as_mut() };
+        inode.i_op = iops.0;
+        self
     }
 
     /// Sets the file operations on this new inode.
@@ -201,8 +212,30 @@ impl<T: FileSystem + ?Sized> Ops<T> {
     pub const fn new<U: Operations<FileSystem = T> + ?Sized>() -> Self {
         struct Table<T: Operations + ?Sized>(PhantomData<T>);
         impl<T: Operations + ?Sized> Table<T> {
+            extern "C" fn lookup_callback(
+                parent_ptr: *mut bindings::inode,
+                dentry_ptr: *mut bindings::dentry,
+                _flags: u32,
+            ) -> *mut bindings::dentry {
+                // SAFETY: The C API guarantees that `parent_ptr` is a valid inode.
+                let parent = unsafe { INode::from_raw(parent_ptr) };
+
+                // SAFETY: The C API guarantees that `dentry_ptr` is a valid dentry.
+                let dentry = unsafe { DEntry::from_raw(dentry_ptr) };
+
+                match T::lookup(parent, dentry::Unhashed(dentry)) {
+                    Err(e) => e.to_ptr(),
+                    Ok(None) => ptr::null_mut(),
+                    Ok(Some(ret)) => ManuallyDrop::new(ret).0.get(),
+                }
+            }
+
             const TABLE: bindings::inode_operations = bindings::inode_operations {
-                lookup: None,
+                lookup: if T::HAS_LOOKUP {
+                    Some(Self::lookup_callback)
+                } else {
+                    None
+                },
                 get_link: None,
                 permission: None,
                 get_inode_acl: None,

@@ -43,7 +43,6 @@ impl<T: FileSystem + ?Sized> DEntry<T> {
     ///
     /// * `ptr` must be valid for at least the lifetime of the returned reference.
     /// * `ptr` has the correct file system type, or `T` is [`super::UnspecifiedFS`].
-    #[allow(dead_code)]
     pub(crate) unsafe fn from_raw<'a>(ptr: *mut bindings::dentry) -> &'a Self {
         // SAFETY: The safety requirements guarantee that the reference is and remains valid.
         unsafe { &*ptr.cast::<Self>() }

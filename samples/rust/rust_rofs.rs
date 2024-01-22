@@ -2,9 +2,11 @@
 
 //! Rust read-only file system sample.
 
-use kernel::fs::{dentry, file, file::File, inode, sb, sb::SuperBlock, Offset};
+use kernel::fs::{
+    dentry, dentry::DEntry, file, file::File, inode, inode::INode, sb, sb::SuperBlock, Offset,
+};
 use kernel::prelude::*;
-use kernel::{c_str, fs, time::UNIX_EPOCH, types::Either, user};
+use kernel::{c_str, fs, time::UNIX_EPOCH, types::ARef, types::Either, user};
 
 kernel::module_fs! {
     type: RoFs,
@@ -39,8 +41,36 @@ const ENTRIES: [Entry; 3] = [
 ];
 
 const DIR_FOPS: file::Ops<RoFs> = file::Ops::new::<RoFs>();
+const DIR_IOPS: inode::Ops<RoFs> = inode::Ops::new::<RoFs>();
 
 struct RoFs;
+
+impl RoFs {
+    fn iget(sb: &sb::SuperBlock<Self>, e: &'static Entry) -> Result<ARef<INode<Self>>> {
+        let mut new = match sb.get_or_create_inode(e.ino)? {
+            Either::Left(existing) => return Ok(existing),
+            Either::Right(new) => new,
+        };
+
+        match e.etype {
+            inode::Type::Dir => new.set_iops(DIR_IOPS).set_fops(DIR_FOPS),
+        };
+
+        new.init(inode::Params {
+            typ: e.etype,
+            mode: 0o555,
+            size: ENTRIES.len().try_into()?,
+            blocks: 1,
+            nlink: 2,
+            uid: 0,
+            gid: 0,
+            atime: UNIX_EPOCH,
+            ctime: UNIX_EPOCH,
+            mtime: UNIX_EPOCH,
+        })
+    }
+}
+
 impl fs::FileSystem for RoFs {
     const NAME: &'static CStr = c_str!("rust_rofs");
 
@@ -54,25 +84,32 @@ impl fs::FileSystem for RoFs {
     }
 
     fn init_root(sb: &SuperBlock<Self>) -> Result<dentry::Root<Self>> {
-        let inode = match sb.get_or_create_inode(1)? {
-            Either::Left(existing) => existing,
-            Either::Right(mut new) => {
-                new.set_fops(DIR_FOPS);
-                new.init(inode::Params {
-                    typ: inode::Type::Dir,
-                    mode: 0o555,
-                    size: ENTRIES.len().try_into()?,
-                    blocks: 1,
-                    nlink: 2,
-                    uid: 0,
-                    gid: 0,
-                    atime: UNIX_EPOCH,
-                    ctime: UNIX_EPOCH,
-                    mtime: UNIX_EPOCH,
-                })?
-            }
-        };
+        let inode = Self::iget(sb, &ENTRIES[0])?;
         dentry::Root::try_new(inode)
+    }
+}
+
+#[vtable]
+impl inode::Operations for RoFs {
+    type FileSystem = Self;
+
+    fn lookup(
+        parent: &INode<Self>,
+        dentry: dentry::Unhashed<'_, Self>,
+    ) -> Result<Option<ARef<DEntry<Self>>>> {
+        if parent.ino() != 1 {
+            return dentry.splice_alias(None);
+        }
+
+        let name = dentry.name();
+        for e in &ENTRIES {
+            if name == e.name {
+                let inode = Self::iget(parent.super_block(), e)?;
+                return dentry.splice_alias(Some(inode));
+            }
+        }
+
+        dentry.splice_alias(None)
     }
 }
 
