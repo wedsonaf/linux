@@ -355,6 +355,12 @@ pub trait Operations {
 pub struct Ops<T: FileSystem + ?Sized>(pub(crate) *const bindings::file_operations, PhantomData<T>);
 
 impl<T: FileSystem + ?Sized> Ops<T> {
+    /// Returns file operations for page-cache-based ro files.
+    pub fn generic_ro_file() -> Self {
+        // SAFETY: This is a constant in C, it never changes.
+        Self(unsafe { &bindings::generic_ro_fops }, PhantomData)
+    }
+
     /// Creates file operations from a type that implements the [`Operations`] trait.
     pub const fn new<U: Operations<FileSystem = T> + ?Sized>() -> Self {
         struct Table<T: Operations + ?Sized>(PhantomData<T>);
@@ -516,6 +522,7 @@ impl From<inode::Type> for DirEntryType {
     fn from(value: inode::Type) -> Self {
         match value {
             inode::Type::Dir => DirEntryType::Dir,
+            inode::Type::Reg => DirEntryType::Reg,
         }
     }
 }

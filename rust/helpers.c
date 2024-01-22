@@ -276,6 +276,12 @@ loff_t rust_helper_i_size_read(const struct inode *inode)
 }
 EXPORT_SYMBOL_GPL(rust_helper_i_size_read);
 
+void rust_helper_mapping_set_large_folios(struct address_space *mapping)
+{
+	mapping_set_large_folios(mapping);
+}
+EXPORT_SYMBOL_GPL(rust_helper_mapping_set_large_folios);
+
 unsigned long rust_helper_copy_to_user(void __user *to, const void *from,
 				       unsigned long n)
 {

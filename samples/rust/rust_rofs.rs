@@ -3,10 +3,11 @@
 //! Rust read-only file system sample.
 
 use kernel::fs::{
-    dentry, dentry::DEntry, file, file::File, inode, inode::INode, sb::SuperBlock, Offset,
+    address_space, dentry, dentry::DEntry, file, file::File, inode, inode::INode, sb, Offset,
 };
 use kernel::prelude::*;
-use kernel::{c_str, fs, time::UNIX_EPOCH, types::ARef, types::Either, types::Locked, user};
+use kernel::types::{ARef, Either, Locked};
+use kernel::{c_str, folio::Folio, folio::PageCache, fs, time::UNIX_EPOCH, user};
 
 kernel::module_fs! {
     type: RoFs,
@@ -20,6 +21,7 @@ struct Entry {
     name: &'static [u8],
     ino: u64,
     etype: inode::Type,
+    contents: &'static [u8],
 }
 
 const ENTRIES: [Entry; 3] = [
@@ -27,41 +29,53 @@ const ENTRIES: [Entry; 3] = [
         name: b".",
         ino: 1,
         etype: inode::Type::Dir,
+        contents: b"",
     },
     Entry {
         name: b"..",
         ino: 1,
         etype: inode::Type::Dir,
+        contents: b"",
     },
     Entry {
-        name: b"subdir",
+        name: b"test.txt",
         ino: 2,
-        etype: inode::Type::Dir,
+        etype: inode::Type::Reg,
+        contents: b"hello world\n",
     },
 ];
 
 const DIR_FOPS: file::Ops<RoFs> = file::Ops::new::<RoFs>();
 const DIR_IOPS: inode::Ops<RoFs> = inode::Ops::new::<RoFs>();
+const FILE_AOPS: address_space::Ops<RoFs> = address_space::Ops::new::<RoFs>();
 
 struct RoFs;
 
 impl RoFs {
-    fn iget(sb: &SuperBlock<Self>, e: &'static Entry) -> Result<ARef<INode<Self>>> {
+    fn iget(sb: &sb::SuperBlock<Self>, e: &'static Entry) -> Result<ARef<INode<Self>>> {
         let mut new = match sb.get_or_create_inode(e.ino)? {
             Either::Left(existing) => return Ok(existing),
             Either::Right(new) => new,
         };
 
-        match e.etype {
-            inode::Type::Dir => new.set_iops(DIR_IOPS).set_fops(DIR_FOPS),
+        let (mode, nlink, size) = match e.etype {
+            inode::Type::Dir => {
+                new.set_iops(DIR_IOPS).set_fops(DIR_FOPS);
+                (0o555, 2, ENTRIES.len().try_into()?)
+            }
+            inode::Type::Reg => {
+                new.set_fops(file::Ops::generic_ro_file())
+                    .set_aops(FILE_AOPS);
+                (0o444, 1, e.contents.len().try_into()?)
+            }
         };
 
         new.init(inode::Params {
             typ: e.etype,
-            mode: 0o555,
-            size: ENTRIES.len().try_into()?,
-            blocks: 1,
-            nlink: 2,
+            mode,
+            size,
+            blocks: (u64::try_from(size)? + 511) / 512,
+            nlink,
             uid: 0,
             gid: 0,
             atime: UNIX_EPOCH,
@@ -74,12 +88,12 @@ impl RoFs {
 impl fs::FileSystem for RoFs {
     const NAME: &'static CStr = c_str!("rust_rofs");
 
-    fn fill_super(sb: &mut SuperBlock<Self>) -> Result {
+    fn fill_super(sb: &mut sb::SuperBlock<Self>) -> Result {
         sb.set_magic(0x52555354);
         Ok(())
     }
 
-    fn init_root(sb: &SuperBlock<Self>) -> Result<dentry::Root<Self>> {
+    fn init_root(sb: &sb::SuperBlock<Self>) -> Result<dentry::Root<Self>> {
         let inode = Self::iget(sb, &ENTRIES[0])?;
         dentry::Root::try_new(inode)
     }
@@ -106,6 +120,33 @@ impl inode::Operations for RoFs {
         }
 
         dentry.splice_alias(None)
+    }
+}
+
+#[vtable]
+impl address_space::Operations for RoFs {
+    type FileSystem = Self;
+
+    fn read_folio(_: Option<&File<Self>>, mut folio: Locked<&Folio<PageCache<Self>>>) -> Result {
+        let data = match folio.inode().ino() {
+            2 => ENTRIES[2].contents,
+            _ => return Err(EINVAL),
+        };
+
+        let pos = usize::try_from(folio.pos()).unwrap_or(usize::MAX);
+        let copied = if pos >= data.len() {
+            0
+        } else {
+            let to_copy = core::cmp::min(data.len() - pos, folio.size());
+            folio.write(0, &data[pos..][..to_copy])?;
+            to_copy
+        };
+
+        folio.zero_out(copied, folio.size() - copied)?;
+        folio.mark_uptodate();
+        folio.flush_dcache();
+
+        Ok(())
     }
 }
 

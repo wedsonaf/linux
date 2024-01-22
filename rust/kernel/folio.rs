@@ -49,7 +49,6 @@ impl<S> Folio<S> {
     /// Callers must ensure that:
     /// * `ptr` is valid and remains so for the lifetime of the returned reference.
     /// * The folio has the right state.
-    #[allow(dead_code)]
     pub(crate) unsafe fn from_raw<'a>(ptr: *mut bindings::folio) -> &'a Self {
         // SAFETY: The safety requirements guarantee that the cast below is ok.
         unsafe { &*ptr.cast::<Self>() }

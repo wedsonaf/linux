@@ -6,7 +6,9 @@
 //!
 //! C headers: [`include/linux/fs.h`](srctree/include/linux/fs.h)
 
-use super::{dentry, dentry::DEntry, file, sb::SuperBlock, FileSystem, Offset, UnspecifiedFS};
+use super::{
+    address_space, dentry, dentry::DEntry, file, sb::SuperBlock, FileSystem, Offset, UnspecifiedFS,
+};
 use crate::error::{code::*, Result};
 use crate::types::{ARef, AlwaysRefCounted, Lockable, Locked, Opaque};
 use crate::{bindings, block, time::Timespec};
@@ -127,6 +129,11 @@ impl<T: FileSystem + ?Sized> New<T> {
         let inode = unsafe { self.0.as_mut() };
         let mode = match params.typ {
             Type::Dir => bindings::S_IFDIR,
+            Type::Reg => {
+                // SAFETY: The `i_mapping` pointer doesn't change and is valid.
+                unsafe { bindings::mapping_set_large_folios(inode.i_mapping) };
+                bindings::S_IFREG
+            }
         };
 
         inode.i_mode = (params.mode & 0o777) | u16::try_from(mode)?;
@@ -166,6 +173,14 @@ impl<T: FileSystem + ?Sized> New<T> {
         inode.__bindgen_anon_3.i_fop = fops.0;
         self
     }
+
+    /// Sets the address space operations on this new inode.
+    pub fn set_aops(&mut self, aops: address_space::Ops<T>) -> &mut Self {
+        // SAFETY: By the type invariants, it's ok to modify the inode.
+        let inode = unsafe { self.0.as_mut() };
+        inode.i_data.a_ops = aops.0;
+        self
+    }
 }
 
 impl<T: FileSystem + ?Sized> Drop for New<T> {
@@ -181,6 +196,9 @@ impl<T: FileSystem + ?Sized> Drop for New<T> {
 pub enum Type {
     /// Directory type.
     Dir,
+
+    /// Regular file type.
+    Reg,
 }
 
 /// Required inode parameters.
