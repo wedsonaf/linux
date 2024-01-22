@@ -165,6 +165,12 @@ struct file *rust_helper_get_file(struct file *f)
 EXPORT_SYMBOL_GPL(rust_helper_get_file);
 
 
+struct dentry *rust_helper_dget(struct dentry *dentry)
+{
+	return dget(dentry);
+}
+EXPORT_SYMBOL_GPL(rust_helper_dget);
+
 loff_t rust_helper_i_size_read(const struct inode *inode)
 {
 	return i_size_read(inode);
