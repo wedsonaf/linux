@@ -11,7 +11,6 @@ pub struct Writer {
 }
 
 impl Writer {
-    #[allow(dead_code)]
     pub(crate) fn new(ptr: *mut i8, len: usize) -> Self {
         Self {
             ptr: ptr.cast::<u8>(),

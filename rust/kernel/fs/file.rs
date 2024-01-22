@@ -12,6 +12,7 @@ use crate::{
     bindings,
     error::{code::*, from_result, Error, Result},
     types::{ARef, AlwaysRefCounted, Opaque},
+    user,
 };
 use core::{marker::PhantomData, ptr};
 use macros::vtable;
@@ -324,6 +325,15 @@ pub trait Operations {
     /// File system that these operations are compatible with.
     type FileSystem: FileSystem + ?Sized;
 
+    /// Reads data from this file into the caller's buffer.
+    fn read(
+        _file: &File<Self::FileSystem>,
+        _buffer: &mut user::Writer,
+        _offset: &mut Offset,
+    ) -> Result<usize> {
+        Err(EINVAL)
+    }
+
     /// Seeks the file to the given offset.
     fn seek(_file: &File<Self::FileSystem>, _offset: Offset, _whence: Whence) -> Result<Offset> {
         Err(EINVAL)
@@ -352,7 +362,11 @@ impl<T: FileSystem + ?Sized> Ops<T> {
                 } else {
                     None
                 },
-                read: None,
+                read: if T::HAS_READ {
+                    Some(Self::read_callback)
+                } else {
+                    None
+                },
                 write: None,
                 read_iter: None,
                 write_iter: None,
@@ -400,6 +414,25 @@ impl<T: FileSystem + ?Sized> Ops<T> {
                     // is the right filesystem.
                     let file = unsafe { File::from_raw(file_ptr) };
                     T::seek(file, offset, whence.try_into()?)
+                })
+            }
+
+            unsafe extern "C" fn read_callback(
+                file_ptr: *mut bindings::file,
+                ptr: *mut core::ffi::c_char,
+                len: usize,
+                offset: *mut bindings::loff_t,
+            ) -> isize {
+                from_result(|| {
+                    // SAFETY: The C API guarantees that `file` is valid for the duration of the
+                    // callback. Since this callback is specifically for filesystem T, we know `T`
+                    // is the right filesystem.
+                    let file = unsafe { File::from_raw(file_ptr) };
+                    let mut writer = user::Writer::new(ptr, len);
+
+                    // SAFETY: The C API guarantees that `offset` is valid for read and write.
+                    let read = T::read(file, &mut writer, unsafe { &mut *offset })?;
+                    Ok(isize::try_from(read)?)
                 })
             }
 
