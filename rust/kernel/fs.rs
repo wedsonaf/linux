@@ -19,6 +19,7 @@ pub mod address_space;
 pub mod dentry;
 pub mod file;
 pub mod inode;
+pub mod iomap;
 pub mod sb;
 
 /// The offset of a file in a file system.
