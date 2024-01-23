@@ -14,6 +14,7 @@
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/fs_context.h>
+#include <linux/iomap.h>
 #include <linux/pagemap.h>
 #include <linux/refcount.h>
 #include <linux/sched.h>
