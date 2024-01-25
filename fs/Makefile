@@ -131,3 +131,4 @@ obj-$(CONFIG_EROFS_FS)		+= erofs/
 obj-$(CONFIG_VBOXSF_FS)		+= vboxsf/
 obj-$(CONFIG_ZONEFS_FS)		+= zonefs/
 obj-$(CONFIG_TARFS_FS)		+= tarfs/
+obj-$(CONFIG_RUST_EXT2_FS)	+= rust-ext2/

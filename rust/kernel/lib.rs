@@ -161,3 +161,6 @@ fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
     // SAFETY: FFI call.
     unsafe { bindings::BUG() };
 }
+
+/// The size in bytes of a page of memory.
+pub const PAGE_SIZE: usize = bindings::PAGE_SIZE;
