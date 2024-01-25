@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+
+config RUST_EXT2_FS
+	tristate "Rust second extended fs support"
+	depends on RUST && BLOCK
+	help
+	  Ext2 is a standard Linux file system for hard disks.
+
+	  To compile this file system support as a module, choose M here: the
+	  module will be called rust_ext2.
+
+	  If unsure, say Y.

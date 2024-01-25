@@ -165,3 +165,6 @@ macro_rules! container_of {
         ptr.wrapping_sub(offset) as *const $type
     }}
 }
+
+/// The size in bytes of a page of memory.
+pub const PAGE_SIZE: usize = bindings::PAGE_SIZE;
