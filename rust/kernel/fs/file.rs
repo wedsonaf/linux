@@ -518,15 +518,15 @@ pub enum DirEntryType {
     Wht = bindings::DT_WHT,
 }
 
-impl From<inode::Type> for DirEntryType {
-    fn from(value: inode::Type) -> Self {
+impl From<&inode::Type> for DirEntryType {
+    fn from(value: &inode::Type) -> Self {
         match value {
             inode::Type::Fifo => DirEntryType::Fifo,
             inode::Type::Chr(_, _) => DirEntryType::Chr,
             inode::Type::Dir => DirEntryType::Dir,
             inode::Type::Blk(_, _) => DirEntryType::Blk,
             inode::Type::Reg => DirEntryType::Reg,
-            inode::Type::Lnk => DirEntryType::Lnk,
+            inode::Type::Lnk(_) => DirEntryType::Lnk,
             inode::Type::Sock => DirEntryType::Sock,
         }
     }

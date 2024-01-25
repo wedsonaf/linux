@@ -7,7 +7,7 @@ use kernel::fs::{
 };
 use kernel::prelude::*;
 use kernel::types::{ARef, Either, Locked};
-use kernel::{c_str, folio::Folio, folio::PageCache, fs, str::CString, time::UNIX_EPOCH, user};
+use kernel::{c_str, folio::Folio, folio::PageCache, fs, time::UNIX_EPOCH, user};
 
 kernel::module_fs! {
     type: RoFs,
@@ -46,7 +46,7 @@ const ENTRIES: [Entry; 4] = [
     Entry {
         name: b"link.txt",
         ino: 3,
-        etype: inode::Type::Lnk,
+        etype: inode::Type::Lnk(None),
         contents: b"./test.txt",
     },
 ];
@@ -54,7 +54,6 @@ const ENTRIES: [Entry; 4] = [
 const DIR_FOPS: file::Ops<RoFs> = file::Ops::new::<RoFs>();
 const DIR_IOPS: inode::Ops<RoFs> = inode::Ops::new::<RoFs>();
 const FILE_AOPS: address_space::Ops<RoFs> = address_space::Ops::new::<RoFs>();
-const LNK_IOPS: inode::Ops<RoFs> = inode::Ops::new::<Link>();
 
 struct RoFs;
 
@@ -65,25 +64,30 @@ impl RoFs {
             Either::Right(new) => new,
         };
 
-        let (mode, nlink, size) = match e.etype {
+        let (mode, nlink, size, typ) = match e.etype {
             inode::Type::Dir => {
                 new.set_iops(DIR_IOPS).set_fops(DIR_FOPS);
-                (0o555, 2, ENTRIES.len().try_into()?)
+                (0o555, 2, ENTRIES.len().try_into()?, inode::Type::Dir)
             }
             inode::Type::Reg => {
                 new.set_fops(file::Ops::generic_ro_file())
                     .set_aops(FILE_AOPS);
-                (0o444, 1, e.contents.len().try_into()?)
+                (0o444, 1, e.contents.len().try_into()?, inode::Type::Reg)
             }
-            inode::Type::Lnk => {
-                new.set_iops(LNK_IOPS);
-                (0o444, 1, e.contents.len().try_into()?)
+            inode::Type::Lnk(_) => {
+                new.set_iops(inode::Ops::simple_symlink_inode());
+                (
+                    0o444,
+                    1,
+                    e.contents.len().try_into()?,
+                    inode::Type::Lnk(Some(e.contents.try_into()?)),
+                )
             }
             _ => return Err(ENOENT),
         };
 
         new.init(inode::Params {
-            typ: e.etype,
+            typ,
             mode,
             size,
             blocks: (u64::try_from(size)? + 511) / 512,
@@ -138,30 +142,6 @@ impl inode::Operations for RoFs {
     }
 }
 
-struct Link;
-#[vtable]
-impl inode::Operations for Link {
-    type FileSystem = RoFs;
-
-    fn get_link<'a>(
-        dentry: Option<&DEntry<RoFs>>,
-        inode: &'a INode<RoFs>,
-    ) -> Result<Either<CString, &'a CStr>> {
-        if dentry.is_none() {
-            return Err(ECHILD);
-        }
-
-        let name_buf = inode.data().contents;
-        let mut name = Box::new_slice(
-            name_buf.len().checked_add(1).ok_or(ENOMEM)?,
-            b'\0',
-            GFP_NOFS,
-        )?;
-        name[..name_buf.len()].copy_from_slice(name_buf);
-        Ok(Either::Left(name.try_into()?))
-    }
-}
-
 #[vtable]
 impl address_space::Operations for RoFs {
     type FileSystem = Self;
@@ -212,7 +192,7 @@ impl file::Operations for RoFs {
         }
 
         for e in ENTRIES.iter().skip(pos.try_into()?) {
-            if !emitter.emit(1, e.name, e.ino, e.etype.into()) {
+            if !emitter.emit(1, e.name, e.ino, (&e.etype).into()) {
                 break;
             }
         }
