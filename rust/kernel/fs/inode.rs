@@ -6,7 +6,9 @@
 //!
 //! C headers: [`include/linux/fs.h`](srctree/include/linux/fs.h)
 
-use super::{address_space, dentry, dentry::DEntry, file, sb::SuperBlock, FileSystem, Offset};
+use super::{
+    address_space, dentry, dentry::DEntry, file, mode, sb::SuperBlock, FileSystem, Offset,
+};
 use crate::error::{code::*, Result};
 use crate::types::{ARef, AlwaysRefCounted, Either, ForeignOwnable, Opaque};
 use crate::{bindings, container_of, mem_cache::MemCache, str::CStr, str::CString, time::Timespec};
@@ -158,6 +160,17 @@ impl<T: FileSystem + ?Sized> INode<T> {
         let ptr = container_of!(inode, WithData<T::INodeData>, inode).cast_mut();
 
         if !is_bad {
+            // SAFET: The API contract guarantees that `inode` is valid.
+            if unsafe { (*inode).i_mode & mode::S_IFMT == mode::S_IFLNK } {
+                // SAFETY: We just checked that the inode is a link.
+                let lnk = unsafe { (*inode).__bindgen_anon_4.i_link };
+                if !lnk.is_null() {
+                    // SAFETY: This value is on link inode are only populated from with the result
+                    // of `CString::into_foreign`.
+                    unsafe { CString::from_foreign(lnk.cast::<core::ffi::c_void>()) };
+                }
+            }
+
             // SAFETY: The code either initialises the data or marks the inode as bad. Since the
             // inode is not bad, the data is initialised, and thus safe to drop.
             unsafe { ptr::drop_in_place((*ptr).data.as_mut_ptr()) };
@@ -230,7 +243,7 @@ impl<T: FileSystem + ?Sized> New<T> {
                 unsafe { bindings::mapping_set_large_folios(inode.i_mapping) };
                 bindings::S_IFREG
             }
-            Type::Lnk => {
+            Type::Lnk(str) => {
                 // If we are using `page_get_link`, we need to prevent the use of high mem.
                 if !inode.i_op.is_null() {
                     // SAFETY: We just checked that `i_op` is non-null, and we always just set it
@@ -241,6 +254,9 @@ impl<T: FileSystem + ?Sized> New<T> {
                         // SAFETY: `inode` is valid for write as it's a new inode.
                         unsafe { bindings::inode_nohighmem(inode) };
                     }
+                }
+                if let Some(s) = str {
+                    inode.__bindgen_anon_4.i_link = s.into_foreign().cast::<i8>().cast_mut();
                 }
                 bindings::S_IFLNK
             }
@@ -334,7 +350,6 @@ impl<T: FileSystem + ?Sized> Drop for New<T> {
 }
 
 /// The type of an inode.
-#[derive(Copy, Clone)]
 pub enum Type {
     /// Named pipe (first-in, first-out) type.
     Fifo,
@@ -352,7 +367,7 @@ pub enum Type {
     Reg,
 
     /// Symbolic link type.
-    Lnk,
+    Lnk(Option<CString>),
 
     /// Named unix-domain socket type.
     Sock,
@@ -410,6 +425,15 @@ impl<T: FileSystem + ?Sized> Ops<T> {
         // SAFETY: This is a constant in C, it never changes.
         Self(
             unsafe { &bindings::page_symlink_inode_operations },
+            PhantomData,
+        )
+    }
+
+    /// Returns inode operations for symbolic links that are stored in the `i_lnk` field.
+    pub fn simple_symlink_inode() -> Self {
+        // SAFETY: This is a constant in C, it never changes.
+        Self(
+            unsafe { &bindings::simple_symlink_inode_operations },
             PhantomData,
         )
     }
