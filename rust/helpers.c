@@ -267,6 +267,18 @@ void *rust_helper_alloc_inode_sb(struct super_block *sb,
 }
 EXPORT_SYMBOL_GPL(rust_helper_alloc_inode_sb);
 
+unsigned int rust_helper_memalloc_nofs_save(void)
+{
+	return memalloc_nofs_save();
+}
+EXPORT_SYMBOL_GPL(rust_helper_memalloc_nofs_save);
+
+void rust_helper_memalloc_nofs_restore(unsigned int flags)
+{
+	memalloc_nofs_restore(flags);
+}
+EXPORT_SYMBOL_GPL(rust_helper_memalloc_nofs_restore);
+
 void rust_helper_i_uid_write(struct inode *inode, uid_t uid)
 {
 	i_uid_write(inode, uid);

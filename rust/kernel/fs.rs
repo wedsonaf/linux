@@ -417,6 +417,19 @@ impl<T: FileSystem + ?Sized> Tables<T> {
     }
 }
 
+/// Calls `cb` in a nofs allocation context.
+///
+/// That is, if an allocation happens within `cb`, it will have the `__GFP_FS` bit cleared. It is
+/// meant to be used when allocating memory in a file system.
+pub fn memalloc_nofs<T>(cb: impl FnOnce() -> T) -> T {
+    // SAFETY: Function is safe to be called from any context.
+    let flags = unsafe { bindings::memalloc_nofs_save() };
+    let ret = cb();
+    // SAFETY: Function is safe to be called from any context.
+    unsafe { bindings::memalloc_nofs_restore(flags) };
+    ret
+}
+
 /// Kernel module that exposes a single file system implemented by `T`.
 #[pin_data]
 pub struct Module<T: FileSystem + ?Sized> {
