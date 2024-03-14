@@ -148,20 +148,20 @@ impl ForeignOwnable for () {
 /// # example2(true);
 /// ```
 ///
-/// In the example below, we need a mutable object (the vector) to be accessible within the log
-/// function, so we wrap it in the [`ScopeGuard`]:
+/// In the example below, we need a mutable object to be accessible within the log function, so we
+/// wrap it in the [`ScopeGuard`]:
 ///
 /// ```
 /// # use kernel::types::ScopeGuard;
 /// fn example3(arg: bool) -> Result {
-///     let mut vec =
-///         ScopeGuard::new_with_data(Vec::new(), |v| pr_info!("vec had {} elements\n", v.len()));
+///     let mut v =
+///         ScopeGuard::new_with_data(0u32, |v| pr_info!("Value of variable: {v}"));
 ///
-///     vec.try_push(10u8)?;
+///     *v += 1;
 ///     if arg {
 ///         return Ok(());
 ///     }
-///     vec.try_push(20u8)?;
+///     *v += 1;
 ///     Ok(())
 /// }
 ///
