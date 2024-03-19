@@ -8,6 +8,9 @@ mod allocator;
 pub mod boxext;
 pub mod vecext;
 
+/// Indicates an allocation error.
+pub struct AllocError;
+
 /// Flags to be used when allocating memory.
 ///
 /// They can be combined with the operators `|`, `&`, and `!`.

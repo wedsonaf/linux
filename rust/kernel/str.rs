@@ -2,8 +2,7 @@
 
 //! String representations.
 
-use crate::alloc::{flags::*, vecext::VecExt};
-use alloc::alloc::AllocError;
+use crate::alloc::{flags::*, vecext::VecExt, AllocError};
 use alloc::vec::Vec;
 use core::fmt::{self, Write};
 use core::ops::{self, Deref, Index};
