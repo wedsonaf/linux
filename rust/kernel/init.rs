@@ -1159,7 +1159,7 @@ impl<T> InPlaceInit<T> for Box<T> {
     where
         E: From<AllocError>,
     {
-        let mut this = Box::new_uninit(GFP_KERNEL)?;
+        let mut this = <Box<_> as BoxExt<_>>::new_uninit(GFP_KERNEL)?;
         let slot = this.as_mut_ptr();
         // SAFETY: When init errors/panics, slot will get deallocated but not dropped,
         // slot is valid and will not be moved, because we pin it later.
@@ -1173,7 +1173,7 @@ impl<T> InPlaceInit<T> for Box<T> {
     where
         E: From<AllocError>,
     {
-        let mut this = Box::new_uninit(GFP_KERNEL)?;
+        let mut this = <Box<_> as BoxExt<_>>::new_uninit(GFP_KERNEL)?;
         let slot = this.as_mut_ptr();
         // SAFETY: When init errors/panics, slot will get deallocated but not dropped,
         // slot is valid.

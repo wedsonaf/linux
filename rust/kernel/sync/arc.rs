@@ -171,7 +171,7 @@ impl<T> Arc<T> {
             data: contents,
         };
 
-        let inner = Box::new(value, GFP_KERNEL)?;
+        let inner = <Box<_> as BoxExt<_>>::new(value, GFP_KERNEL)?;
 
         // SAFETY: We just created `inner` with a reference count of 1, which is owned by the new
         // `Arc` object.
